@@ -30,6 +30,10 @@ Two devices, *Lave-vaisselle* and *Buanderie*, each with:
 | `sensor.lave_vaisselle_conso_non_mesuree` | the residual itself — the number to look at when a cycle is missed or invented |
 | `button.buanderie_oublier_empreintes` | throw away what was learned |
 
+Entity *ids* follow the Home Assistant UI language — an English instance gets
+`binary_sensor.buanderie_running` for the row above. The unique ids, and the
+translation keys, do not move.
+
 Every cycle fires an `appliance_watch_cycle` event (`watcher`, `kind`,
 `appliance`, `reason`).
 
