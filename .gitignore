@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv-test/
+
+# Claude Code workspace: keep shared settings out of the personal local
+# overrides file (which carries developer-specific allow rules and paths).
+.claude/settings.local.json

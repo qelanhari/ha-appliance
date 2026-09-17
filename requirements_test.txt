@@ -1,0 +1,18 @@
+# Test-only dependencies for appliance_watch.
+#
+# The detection suite (tests/test_detector.py, tests/test_residual.py,
+# tests/test_fingerprints.py) runs under plain `pytest` with nothing beyond the
+# standard library — see the sys.path shim at the top of each file. It replays
+# real power traces recorded from the instance, so it is the suite that matters.
+#
+# This file lists the extra packages needed for the config-flow and coordinator
+# tests, which run against a mocked Home Assistant.
+#
+#     python3 -m venv .venv-test
+#     .venv-test/bin/pip install -r requirements_test.txt
+#     .venv-test/bin/pytest
+#
+# The brew-managed system Python on macOS frequently conflicts with these
+# dependencies; the venv keeps the install isolated and disposable.
+
+pytest-homeassistant-custom-component

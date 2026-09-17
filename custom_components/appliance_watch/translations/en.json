@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Appliance Watch",
+        "description": "Nothing meters the dishwasher, so it is read from whatever is left of the house's consumption once every metered appliance is subtracted. Point at the house total, then at what is already measured elsewhere.",
+        "data": {
+          "total_entity": "Whole-house consumption",
+          "measured_entities": "Already metered appliances (subtracted)",
+          "optional_entities": "Intermittent meters (unavailable when idle)",
+          "laundry_meter_entity": "Laundry meter (washer + dryer)"
+        },
+        "data_description": {
+          "measured_entities": "A sensor that drops out suspends detection instead of counting 0 W: a missing reading would inflate the residual by exactly that much.",
+          "optional_entities": "A car charger, for instance, which reports nothing while unplugged."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Detection thresholds",
+        "description": "Measured on this installation: the dishwasher steps 1 940-2 015 W above the ambient base, the oven 2 150-2 230 W. The band must hold the first and exclude the second.",
+        "data": {
+          "step_min_w": "Minimum dishwasher step",
+          "step_max_w": "Maximum dishwasher step",
+          "dishwasher_nominal_minutes": "Expected dishwasher cycle length",
+          "classify_w": "Washer / dryer threshold (mean at T+15…T+20)",
+          "laundry_nominal_minutes": "Expected laundry cycle length"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "en_marche": {
+        "name": "Running"
+      }
+    },
+    "button": {
+      "oublier_empreintes": {
+        "name": "Forget learned durations"
+      }
+    },
+    "sensor": {
+      "etat": {
+        "name": "State",
+        "state": {
+          "veille": "Idle",
+          "en_cours": "Running",
+          "termine": "Finished"
+        }
+      },
+      "appareil": {
+        "name": "Appliance",
+        "state": {
+          "inconnu": "Identifying",
+          "lave_linge": "Washing machine",
+          "seche_linge": "Tumble dryer",
+          "les_deux": "Both"
+        }
+      },
+      "temps_restant": {
+        "name": "Time remaining"
+      },
+      "progression": {
+        "name": "Progress"
+      },
+      "debut": {
+        "name": "Cycle started"
+      },
+      "fin": {
+        "name": "Last cycle finished"
+      },
+      "puissance": {
+        "name": "Estimated power"
+      },
+      "energie": {
+        "name": "Total energy"
+      },
+      "duree_dernier_cycle": {
+        "name": "Last cycle duration"
+      },
+      "energie_dernier_cycle": {
+        "name": "Last cycle energy"
+      },
+      "cycles_appris": {
+        "name": "Cycles observed"
+      },
+      "conso_non_mesuree": {
+        "name": "Unmetered consumption"
+      }
+    }
+  }
+}

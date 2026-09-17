@@ -1,0 +1,11 @@
+{
+  "domain": "appliance_watch",
+  "name": "Appliance Watch",
+  "version": "0.1.0",
+  "documentation": "https://github.com/qelanhari/ha-appliance",
+  "issue_tracker": "https://github.com/qelanhari/ha-appliance/issues",
+  "dependencies": [],
+  "codeowners": ["@qelanhari"],
+  "iot_class": "local_push",
+  "config_flow": true
+}

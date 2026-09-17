@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Appliance Watch",
+        "description": "Le lave-vaisselle n'étant mesuré par aucun capteur, il est lu dans ce qui reste de la consommation de la maison une fois retranché tout ce qui est mesuré. Indiquez donc la consommation totale, puis les appareils déjà comptés ailleurs.",
+        "data": {
+          "total_entity": "Consommation totale de la maison",
+          "measured_entities": "Appareils déjà mesurés (à retrancher)",
+          "optional_entities": "Mesures intermittentes (indisponibles au repos)",
+          "laundry_meter_entity": "Compteur de la buanderie (lave-linge + sèche-linge)"
+        },
+        "data_description": {
+          "measured_entities": "Un capteur qui tombe en panne suspend la détection plutôt que de compter 0 W : une mesure manquante fausserait le résidu d'autant.",
+          "optional_entities": "Par exemple une borne de recharge, qui ne publie rien quand rien n'est branché."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Seuils de détection",
+        "description": "Valeurs mesurées sur l'installation : le lave-vaisselle monte de 1 940 à 2 015 W au-dessus de la base, le four de 2 150 à 2 230 W. La bande doit contenir le premier et exclure le second.",
+        "data": {
+          "step_min_w": "Échelon minimal du lave-vaisselle",
+          "step_max_w": "Échelon maximal du lave-vaisselle",
+          "dishwasher_nominal_minutes": "Durée attendue d'un cycle de lave-vaisselle",
+          "classify_w": "Seuil lave-linge / sèche-linge (moyenne à T+15…T+20)",
+          "laundry_nominal_minutes": "Durée attendue d'un cycle de buanderie"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "en_marche": { "name": "En marche" }
+    },
+    "button": {
+      "oublier_empreintes": { "name": "Oublier les durées apprises" }
+    },
+    "sensor": {
+      "etat": {
+        "name": "État",
+        "state": { "veille": "Veille", "en_cours": "En cours", "termine": "Terminé" }
+      },
+      "appareil": {
+        "name": "Appareil",
+        "state": {
+          "inconnu": "En cours d'identification",
+          "lave_linge": "Lave-linge",
+          "seche_linge": "Sèche-linge",
+          "les_deux": "Les deux"
+        }
+      },
+      "temps_restant": { "name": "Temps restant" },
+      "progression": { "name": "Progression" },
+      "debut": { "name": "Début du cycle" },
+      "fin": { "name": "Fin du dernier cycle" },
+      "puissance": { "name": "Puissance estimée" },
+      "energie": { "name": "Énergie cumulée" },
+      "duree_dernier_cycle": { "name": "Durée du dernier cycle" },
+      "energie_dernier_cycle": { "name": "Énergie du dernier cycle" },
+      "cycles_appris": { "name": "Cycles observés" },
+      "conso_non_mesuree": { "name": "Consommation non mesurée" }
+    }
+  }
+}
