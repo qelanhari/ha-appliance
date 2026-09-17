@@ -53,20 +53,34 @@ class Transition:
 class SharedMeterConfig:
     """Two appliances, one meter — washer and dryer in the garage.
 
-    Defaults come from six days of recorded cycles:
-    standby sits at 30 W with brief 75 W blips, but five episodes of ~180 W
-    lasting a quarter of an hour would fool any plain "above 100 W" rule. Only
-    a heating burst proves a real cycle, hence the confirmation step.
+    Defaults come from six days of recorded cycles, plus twenty months of
+    logged oddities on this particular circuit — which also carries a freezer:
+
+    * standby sits at 30 W with brief 75 W blips, and five episodes of ~180 W
+      lasting a quarter of an hour would fool any plain "above 100 W" rule;
+    * the freezer compressor draws ~120 W and **surges to 1.5-2 kW on start**,
+      which would confirm a cycle on its own — so the confirmation burst has to
+      be *held*, not merely touched;
+    * the same compressor is why idling is judged well above 120 W: a cycle
+      that treated the freezer as activity would never end.
     """
 
     burst: str = "seche_linge"  # sustained heating -> dryer
     steady: str = "lave_linge"  # heats once, then runs cool -> washer
     arm_w: float = 100.0
     confirm_w: float = 1500.0
+    # Held, not touched: a freezer's start-up surge is over in a second, a
+    # heating element runs for minutes.
+    confirm_hold: timedelta = timedelta(seconds=60)
     confirm_within: timedelta = timedelta(minutes=10)
     classify_at: timedelta = timedelta(minutes=20)
     classify_from: timedelta = timedelta(minutes=15)
     classify_w: float = 800.0  # measured: washer 144 W, dryer 1035-1983 W
+    # The washer's drum runs at 142-215 W and the freezer's compressor at a
+    # similar level, so no threshold separates them: this one is set low, where
+    # the traces put it, and the consequence is accepted — a compressor running
+    # when the laundry finishes delays "terminé" by up to one compressor run.
+    # The countdown has already reached zero by then, so nothing is misstated.
     idle_w: float = 100.0
     # A cycle stays alive on *sustained* draw only: single-minute blips of
     # 180-210 W keep appearing on this meter, and they would otherwise hold a
@@ -191,11 +205,21 @@ class SharedMeterDetector:
             return []
         if self._armed_at is None:
             self._armed_at = at
-        if watts >= cfg.confirm_w:
+        if watts >= cfg.confirm_w and self._burst_is_held(at):
             return [self._start(at)]
         if at - self._armed_at > cfg.confirm_within:
             self._armed_at = None  # a 180 W blip that never heated: not a cycle
         return []
+
+    def _burst_is_held(self, at: datetime) -> bool:
+        """True when the draw has *stayed* high, not merely spiked.
+
+        The freezer sharing this circuit surges to 2 kW for a second each time
+        its compressor starts; averaged over the last minute that is worth
+        barely 150 W.
+        """
+        mean = self._trace.mean(at - self.config.confirm_hold, at)
+        return mean is not None and mean >= self.config.confirm_w
 
     def _start(self, at: datetime) -> Transition:
         """Open a cycle, dated back to when the rise began, not to the burst."""

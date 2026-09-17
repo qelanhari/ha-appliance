@@ -218,3 +218,30 @@ def test_a_cycle_survives_the_troughs_inside_it():
     """The washer's drum dips under 100 W for a minute at a time near the end."""
     events = replay(SharedMeterDetector(), "washer_wed_0835")
     assert kinds(events).count("finished") == 1
+
+
+def test_a_freezer_start_up_surge_does_not_confirm_a_cycle():
+    """The same circuit carries a freezer: ~120 W, surging to 2 kW on start.
+
+    Touching the confirmation threshold is not enough — it has to be held, or
+    every compressor start would open an hour-long laundry cycle.
+    """
+    detector = SharedMeterDetector()
+    start = datetime(2026, 9, 17, 3, 0)
+    events = []
+    for second in range(0, 1800, 10):
+        moment = start + timedelta(seconds=second)
+        # Compressor running at 120 W, with a one-second 2 kW inrush every
+        # ten minutes.
+        surge = second % 600 == 0
+        events += detector.feed(moment, 2000.0 if surge else 120.0)
+        if surge:
+            events += detector.feed(moment + timedelta(seconds=1), 120.0)
+    assert events == []
+
+
+def test_a_real_heating_still_confirms_within_a_couple_of_minutes():
+    """The held-burst rule must not push the start of a true cycle out."""
+    events = replay(SharedMeterDetector(), "dryer_wed_1745")
+    start = only(events, "started")
+    assert start.at.strftime("%H:%M") <= "17:51"  # meter first read 17:48

@@ -71,13 +71,20 @@ Two traps the traces revealed, both handled:
 | Washer | heats ~7 min at 2 270-2 431 W, then runs at 150-300 W. 60 min, or 120 on the long programme |
 | Dryer | 1 871-2 206 W in repeated plateaus across the whole cycle. 60-70 min |
 | Standby | 30 W, brief 75 W blips — **and 15-minute episodes at ~180 W** |
+| Freezer (same circuit) | ~120 W running, **surging to 1.5-2 kW on every compressor start** |
 
 - A rise above 100 W only *arms* a cycle; it is confirmed by a burst above
-  1 500 W within ten minutes. The 180 W episodes — five in six days — arm and
-  expire without ever confirming.
+  1 500 W **held for a minute**, within ten minutes of arming. The 180 W
+  episodes — five in six days — arm and expire without ever confirming, and the
+  freezer's 2 kW inrush is worth barely 150 W once averaged over that minute.
 - The appliance is named on the **mean between T+15 and T+20**: measured 144 W
   for the washer, 1 035-1 983 W for the dryer. The bar sits at 800 W.
 - The cycle is dated from the rise, not from the burst.
+- **Known limit**: the washer's drum (142-215 W) and the freezer's compressor
+  draw alike, so no threshold separates them. Idling is therefore judged low,
+  and a compressor running when the laundry finishes delays "terminé" by up to
+  one compressor run. The countdown has reached zero by then, so nothing is
+  misstated — it is only late.
 - A second appliance joining is inferred from what the running one cannot do:
   a washer past its heating never averages 1 600 W over twenty minutes, and a
   dryer's troughs never sit between 300 and 800 W. While both run, each one's
