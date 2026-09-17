@@ -78,9 +78,13 @@ Two traps the traces revealed, both handled:
 | Freezer (same circuit) | ~120 W running, **surging to 1.5-2 kW on every compressor start** |
 
 - A rise above 100 W only *arms* a cycle; it is confirmed by a burst above
-  1 500 W **held for a minute**, within ten minutes of arming. The 180 W
-  episodes — five in six days — arm and expire without ever confirming, and the
-  freezer's 2 kW inrush is worth barely 150 W once averaged over that minute.
+  1 500 W **held for twenty seconds**, within ten minutes of arming. The 180 W
+  episodes — five in six days — arm and expire without ever confirming.
+  Twenty seconds comes from the meter: over twelve days, all sixteen genuine
+  excursions past 1 500 W lasted **129 seconds or more**, and none lasted less,
+  so the rule clears a real cycle six times over. The freezer's inrush never
+  reaches the state stream at all — the meter averages it away, and it only
+  shows up in the statistics `max`.
 - The appliance is named on the **mean between T+15 and T+20**: measured 144 W
   for the washer, 1 035-1 983 W for the dryer. The bar sits at 800 W.
 - The cycle is dated from the rise, not from the burst.

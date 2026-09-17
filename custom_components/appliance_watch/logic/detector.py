@@ -70,8 +70,12 @@ class SharedMeterConfig:
     arm_w: float = 100.0
     confirm_w: float = 1500.0
     # Held, not touched: a freezer's start-up surge is over in a second, a
-    # heating element runs for minutes.
-    confirm_hold: timedelta = timedelta(seconds=60)
+    # heating element runs for minutes. Measured over twelve days, every one of
+    # the sixteen genuine excursions past confirm_w lasted at least 129 s and
+    # none lasted under it — so twenty seconds clears a real cycle six times
+    # over while still asking for twenty times an inrush. It also keeps a brief
+    # manual test detectable, which a minute did not.
+    confirm_hold: timedelta = timedelta(seconds=20)
     confirm_within: timedelta = timedelta(minutes=10)
     classify_at: timedelta = timedelta(minutes=20)
     classify_from: timedelta = timedelta(minutes=15)

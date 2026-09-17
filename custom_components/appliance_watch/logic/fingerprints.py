@@ -25,6 +25,10 @@ MAX_SAMPLES = 20
 # A cycle this far from the known median is kept out of the model — it is
 # almost always two appliances counted as one, or a truncated observation.
 OUTLIER_RATIO = 2.5
+# Nothing shorter than this is a wash: it is a manual test, or a machine
+# switched on and straight back off. Learning from it would drag the expected
+# duration — and the countdown — down with it.
+MIN_LEARNABLE_MINUTES = 5.0
 
 
 @dataclass(frozen=True)
@@ -56,7 +60,7 @@ class Fingerprint:
 def record(fingerprint: Fingerprint, duration_minutes: float,
            energy_wh: float) -> Fingerprint:
     """Add one finished cycle, unless it is wildly unlike the others."""
-    if duration_minutes <= 0:
+    if duration_minutes < MIN_LEARNABLE_MINUTES:
         return fingerprint
     known = fingerprint.median_duration
     if known and not (known / OUTLIER_RATIO <= duration_minutes <= known * OUTLIER_RATIO):

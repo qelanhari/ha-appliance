@@ -245,3 +245,20 @@ def test_a_real_heating_still_confirms_within_a_couple_of_minutes():
     events = replay(SharedMeterDetector(), "dryer_wed_1745")
     start = only(events, "started")
     assert start.at.strftime("%H:%M") <= "17:51"  # meter first read 17:48
+
+
+def test_a_thirty_second_run_is_enough_to_confirm():
+    """Switching a machine on briefly must show up — it is how anyone tests it.
+
+    Measured on the real meter: 31 W until 16:19:57, then 2 154 W for thirty
+    seconds. The reporting interval is 14 s, so the confirmation has one or two
+    readings to work with.
+    """
+    detector = SharedMeterDetector()
+    start = datetime(2026, 9, 17, 16, 19, 52)
+    trace_in = [(0, 31.0), (5, 2153.8), (19, 2143.2), (33, 2126.6),
+                (35, 219.2), (36, 29.1), (50, 29.5)]
+    events = []
+    for offset, watts in trace_in:
+        events += detector.feed(start + timedelta(seconds=offset), watts)
+    assert [event.kind for event in events] == ["started"]

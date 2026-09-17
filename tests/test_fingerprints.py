@@ -73,3 +73,9 @@ def test_corrupt_storage_falls_back_instead_of_raising():
     assert restored.durations == (61.0,)
     assert restored.rejected == 0
     assert from_dict(None) == Fingerprint()
+
+
+def test_a_thirty_second_run_teaches_nothing():
+    """A manual test is not a wash; learning from it would skew the countdown."""
+    assert record(Fingerprint(), 0.5, 20.0).samples == 0
+    assert record(learned(60, 62), 0.5, 20.0).durations == (60.0, 62.0)
