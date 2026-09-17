@@ -218,11 +218,21 @@ class SharedMeterDetector:
     def _burst_is_held(self, at: datetime) -> bool:
         """True when the draw has *stayed* high, not merely spiked.
 
-        The freezer sharing this circuit surges to 2 kW for a second each time
-        its compressor starts; averaged over the last minute that is worth
-        barely 150 W.
+        The freezer sharing this circuit surges on every compressor start;
+        averaged over the window that is worth a fraction of the threshold.
+
+        The window must also be genuinely *observed*. A reading holds until the
+        next one, so a single sample would otherwise fill the whole window on
+        its own and confirm instantly — which is what happened when Home
+        Assistant restarted in the middle of a burst: the integration came up,
+        read 2 071 W once, and opened a cycle it had watched for no time at
+        all, dated from that moment instead of from the real rise.
         """
-        mean = self._trace.mean(at - self.config.confirm_hold, at)
+        window_start = at - self.config.confirm_hold
+        oldest = self._trace.samples[0][0] if self._trace.samples else at
+        if oldest > window_start:
+            return False  # not watched long enough to claim anything was held
+        mean = self._trace.mean(window_start, at)
         return mean is not None and mean >= self.config.confirm_w
 
     def _start(self, at: datetime) -> Transition:

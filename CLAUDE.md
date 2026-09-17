@@ -41,6 +41,14 @@ last few minutes; an hour later they are a lie.
 `_save_state()` is called on every finish, not only at the end of a cycle of the
 main loop — most early returns never reach the bottom.
 
+## A reading holds until the next one
+
+That is true of these meters and of every window statistic here — and it cuts
+both ways. A window covered by a single sample is *not* evidence: before
+concluding anything from `Trace.mean`, check that the trace actually spans the
+window. Skipping that check let a restart mid-burst confirm a cycle on one
+reading.
+
 ## Reading sensors
 
 `_read()` returns `None` for `unavailable`/`unknown`, never `0.0`, and

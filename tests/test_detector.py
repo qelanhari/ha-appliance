@@ -262,3 +262,21 @@ def test_a_thirty_second_run_is_enough_to_confirm():
     for offset, watts in trace_in:
         events += detector.feed(start + timedelta(seconds=offset), watts)
     assert [event.kind for event in events] == ["started"]
+
+
+def test_a_single_reading_cannot_confirm_a_cycle():
+    """Coming up mid-burst must not open a cycle on one sample.
+
+    A reading holds until the next one, so without an observed-window check a
+    lone 2 kW sample fills the whole confirmation window by itself. It happened
+    in production: Home Assistant restarted during a burst, read 2 071 W once,
+    and started an hour-long cycle dated from that instant.
+    """
+    detector = SharedMeterDetector()
+    now = datetime(2026, 9, 17, 16, 24, 32)
+    assert detector.feed(now, 2071.7) == []
+    # Still nothing a few seconds later: the window is not covered yet.
+    assert detector.feed(now + timedelta(seconds=5), 2100.0) == []
+    # Once the trace spans the hold, the same level does confirm.
+    assert [e.kind for e in detector.feed(now + timedelta(seconds=25), 2100.0)] \
+        == ["started"]
