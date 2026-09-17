@@ -22,6 +22,8 @@ Two devices, *Lave-vaisselle* and *Buanderie*, each with:
 | `binary_sensor.*_en_marche` | the trigger for a Live Activity — a discrete transition, never a power sensor |
 | `sensor.*_etat` | `veille` / `en_cours` / `termine` |
 | `sensor.*_appareil` | laundry only: `inconnu` → `lave_linge` / `seche_linge` / `les_deux` |
+| `sensor.*_phase` | dishwasher only: `veille` / `chauffe` / `cycle` / `termine` |
+| `sensor.*_chauffes` | dishwasher only: heating phases so far, with the learned total as an attribute |
 | `sensor.*_temps_restant` | minutes, from the learned duration — feeds `when` |
 | `sensor.*_progression` | percent — feeds `progress` |
 | `sensor.*_puissance` | estimated draw, for a tile or a message |
@@ -106,6 +108,18 @@ Two traps the traces revealed, both handled:
   a washer past its heating never averages 1 600 W over twenty minutes, and a
   dryer's troughs never sit between 300 and 800 W. While both run, each one's
   progress rests on its learned duration rather than on the meter.
+
+### Dishwasher stages
+
+Its heating *is* the detection signal, so the stage can be stated rather than
+guessed — and the count of heating phases places a cycle far better than a
+share of a nominal hour: the machine heats for the wash, then for each rinse.
+Four on one recorded cycle, two on another, and the opening burst counts as one
+despite alternating with the pump every minute.
+
+The expected total is learned like the durations, and left off the display
+until it is known rather than invented. A washing machine gets none of this: on
+a shared meter its stages cannot honestly be read.
 
 ### Learned durations
 

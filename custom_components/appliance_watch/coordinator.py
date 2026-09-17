@@ -74,7 +74,27 @@ class WatcherState:
     last_energy: float | None = None
     finished_at: datetime | None = None
     total_energy_wh: float = 0.0
+    heating: bool = False
+    heats: int = 0
     fingerprints: dict[str, Fingerprint] = field(default_factory=dict)
+
+    @property
+    def expected_heats(self) -> int | None:
+        fingerprint = self.fingerprints.get(self.appliance)
+        return fingerprint.median_heats if fingerprint else None
+
+    @property
+    def stage(self) -> str:
+        """Where the cycle is, in words the phone can show.
+
+        Only honest for an appliance whose heating is the detection signal —
+        the dishwasher. A washing machine's stages cannot be read this way.
+        """
+        if self.phase is Phase.FINISHED:
+            return "termine"
+        if self.phase is not Phase.RUNNING:
+            return "veille"
+        return "chauffe" if self.heating else "cycle"
 
     @property
     def remaining(self) -> float | None:
@@ -233,6 +253,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             dishwasher.power_w = max(0.0, round(self.residual_w - base, 1))
         else:
             dishwasher.power_w = 0.0
+        dishwasher.heating = self._dishwasher.heating
+        dishwasher.heats = self._dishwasher.heats or dishwasher.heats
         laundry = self.states[LAUNDRY]
         laundry.power_w = laundry_w if laundry.phase is Phase.RUNNING and laundry_w else 0.0
 
@@ -242,6 +264,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         state = self.states[watcher]
         if transition.kind == "started":
             state.phase = Phase.RUNNING
+            state.heats = 0
             state.started_at = transition.started_at
             state.appliance = transition.appliance or UNKNOWN
             state.expected = self._expected_for(state)
@@ -264,6 +287,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
 
     def _close(self, state: WatcherState, transition: Transition) -> None:
         state.phase = Phase.FINISHED
+        state.heating = False
+        state.heats = int(transition.heats or state.heats)
         state.finished_at = transition.at
         state.last_duration = (round(transition.duration_minutes, 1)
                                if transition.duration_minutes else None)
@@ -276,7 +301,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             state.fingerprints[key] = record(
                 state.fingerprints.get(key, Fingerprint()),
                 transition.duration_minutes, transition.energy_wh or 0.0,
-                transition.longest_pause_s or 0.0)
+                transition.longest_pause_s or 0.0, int(transition.heats or 0))
         self._apply_learned_rhythm()
 
     def _apply_learned_rhythm(self) -> None:

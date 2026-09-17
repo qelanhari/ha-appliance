@@ -320,3 +320,48 @@ def test_the_washer_still_gets_its_long_grace_period():
     events = replay(SharedMeterDetector(), "washer_wed_0835")
     assert kinds(events).count("finished") == 1
     assert only(events, "finished").duration_minutes >= 55
+
+
+# --------------------------------------------------------------------------
+# Dishwasher phases — the one machine whose stage can honestly be read
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name, expected", [
+    ("dishwasher_thu_1342", 4),
+    ("dishwasher_wed_0142", 2),  # la bouffée d’une minute à 02:01 est sous la bande
+])
+def test_heating_phases_are_counted(name, expected):
+    """Four heatings on the Thursday cycle, three on the night one.
+
+    They are what tells how far along a dishwasher really is — far better than
+    a percentage of a nominal hour.
+    """
+    finished = only(replay(PlateauDetector(), name, tick_after=30), "finished")
+    assert finished.heats == expected
+
+
+def test_the_opening_heating_is_counted_even_though_it_proved_nothing():
+    """That burst alternates heating and pumping, so the cycle is only proven
+    twenty minutes later — but it was the first heating all the same, and it
+    counts as *one* despite its dips."""
+    detector = PlateauDetector()
+    for at, watts in trace("dishwasher_thu_1342"):
+        started = detector.feed(at, watts)
+        if started and started[0].kind == "started":
+            # The choppy 13:42 burst plus the plateau that proved the cycle.
+            assert detector.heats == 2
+            assert started[0].started_at.strftime("%H:%M") == "13:41"
+            return
+    raise AssertionError("cycle jamais détecté")
+
+
+def test_heating_is_reported_while_it_lasts():
+    detector = PlateauDetector()
+    seen_hot = seen_cold = False
+    for at, watts in trace("dishwasher_thu_1342"):
+        detector.feed(at, watts)
+        if detector.cycle is None:
+            continue
+        seen_hot |= detector.heating
+        seen_cold |= not detector.heating
+    assert seen_hot and seen_cold  # both phases occur within one cycle

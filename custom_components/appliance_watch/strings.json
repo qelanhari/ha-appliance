@@ -94,6 +94,18 @@
       },
       "conso_non_mesuree": {
         "name": "Consommation non mesurée"
+      },
+      "phase": {
+        "name": "Phase",
+        "state": {
+          "veille": "Veille",
+          "chauffe": "Chauffe",
+          "cycle": "Cycle en cours",
+          "termine": "Terminé"
+        }
+      },
+      "chauffes": {
+        "name": "Chauffes"
       }
     }
   }

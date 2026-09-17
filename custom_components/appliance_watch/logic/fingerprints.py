@@ -41,6 +41,9 @@ class Fingerprint:
     # machine's own rhythm between two heats. What separates "stopped" from
     # "between heats" is this number, and nothing else.
     pauses_s: tuple[float, ...] = ()
+    # Heating phases per cycle — for a dishwasher, "3rd of 4" places the cycle
+    # far better than a percentage of a nominal hour.
+    heats: tuple[float, ...] = ()
     rejected: int = 0
 
     @property
@@ -61,6 +64,10 @@ class Fingerprint:
         return median(self.energies) if self.energies else None
 
     @property
+    def median_heats(self) -> int | None:
+        return round(median(self.heats)) if self.heats else None
+
+    @property
     def longest_pause_s(self) -> float:
         """The worst dead time ever observed — a *max*, never an average.
 
@@ -71,7 +78,8 @@ class Fingerprint:
 
 
 def record(fingerprint: Fingerprint, duration_minutes: float,
-           energy_wh: float, longest_pause_s: float = 0.0) -> Fingerprint:
+           energy_wh: float, longest_pause_s: float = 0.0,
+           heats: int = 0) -> Fingerprint:
     """Add one finished cycle, unless it is wildly unlike the others."""
     if duration_minutes < MIN_LEARNABLE_MINUTES:
         return fingerprint
@@ -83,6 +91,7 @@ def record(fingerprint: Fingerprint, duration_minutes: float,
         durations=(fingerprint.durations + (round(duration_minutes, 1),))[-MAX_SAMPLES:],
         energies=(fingerprint.energies + (round(energy_wh, 1),))[-MAX_SAMPLES:],
         pauses_s=(fingerprint.pauses_s + (round(longest_pause_s),))[-MAX_SAMPLES:],
+        heats=(fingerprint.heats + (heats,))[-MAX_SAMPLES:] if heats else fingerprint.heats,
     )
 
 
@@ -102,6 +111,7 @@ def as_dict(fingerprint: Fingerprint) -> dict:
         "durations": list(fingerprint.durations),
         "energies": list(fingerprint.energies),
         "pauses_s": list(fingerprint.pauses_s),
+        "heats": list(fingerprint.heats),
         "rejected": fingerprint.rejected,
     }
 
@@ -114,6 +124,7 @@ def from_dict(data: dict | None) -> Fingerprint:
         durations=tuple(_floats(data.get("durations"))),
         energies=tuple(_floats(data.get("energies"))),
         pauses_s=tuple(_floats(data.get("pauses_s"))),
+        heats=tuple(_floats(data.get("heats"))),
         rejected=_count(data.get("rejected")),
     )
 

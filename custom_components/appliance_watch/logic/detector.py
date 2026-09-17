@@ -48,6 +48,7 @@ class Transition:
     energy_wh: float | None = None
     # Longest silence *inside* the cycle — how the machine's rhythm is learned.
     longest_pause_s: float | None = None
+    heats: int | None = None
     reason: str = ""
 
 
@@ -147,6 +148,10 @@ class PlateauConfig:
     # observed before declaring it over.
     nominal: timedelta = timedelta(minutes=63)
     quiet_after_end: timedelta = timedelta(minutes=8)
+    # Two heatings are 13 to 16 minutes apart, while a single one dips for a
+    # minute at a time as the pump runs. Anything closer than this is the same
+    # heating breathing, not a new one.
+    heat_separation: timedelta = timedelta(minutes=5)
     # How far back a confirmed plateau may reach to find the cycle's true first
     # heating: longer than the choppy opening burst, shorter than the 42-minute
     # lull that sits in the middle of a cycle.
@@ -167,6 +172,12 @@ class Cycle:
     # that never ends is the cycle finishing, and is not counted here.
     pauses_s: list[float] = field(default_factory=list)
     quiet_since: datetime | None = None
+    # Heating phases seen so far. For a dishwasher this says far more about how
+    # far along it is than a percentage of a nominal hour: the machine heats
+    # for the wash, then for each rinse.
+    heats: int = 0
+    heating_since: datetime | None = None
+    last_heat_end: datetime | None = None
 
     @property
     def longest_pause_s(self) -> float:
@@ -372,6 +383,7 @@ class PlateauDetector:
         self._previous: tuple[datetime, float] | None = None
         self._plateau_seen_at: datetime | None = None
         self._baseline_w: float | None = None
+        self._heating = False
 
     @property
     def phase(self) -> Phase:
@@ -386,6 +398,15 @@ class PlateauDetector:
         """Ambient unmeasured load, as last computed — what the step sits on."""
         return self._baseline_w
 
+    @property
+    def heating(self) -> bool:
+        """True while a heating plateau is under way."""
+        return self._heating
+
+    @property
+    def heats(self) -> int:
+        return self._cycle.heats if self._cycle else 0
+
     def feed(self, at: datetime, watts: float) -> list[Transition]:
         self._accumulate(at, watts)
         baseline = self._baseline(at)
@@ -395,14 +416,38 @@ class PlateauDetector:
         if baseline is None:
             return []
 
+        out: list[Transition] = []
         in_plateau = self._track_candidate(at, watts, baseline)
         if in_plateau:
             self._plateau_seen_at = at
             if self._cycle is None:
-                return [self._start(baseline)]
+                out.append(self._start(baseline))
+        self._track_heating(at, in_plateau)
+        if out:
+            return out
         if self._cycle is not None:
             return self._maybe_finish(at)
         return []
+
+    def _track_heating(self, at: datetime, in_plateau: bool) -> None:
+        """Count heating phases, ignoring the dips inside one."""
+        cycle = self._cycle
+        if cycle is None:
+            self._heating = False
+            return
+        if in_plateau:
+            if not self._heating:
+                separated = (cycle.last_heat_end is None
+                             or at - cycle.last_heat_end >= self.config.heat_separation)
+                if separated:
+                    cycle.heats += 1
+                cycle.heating_since = at
+            self._heating = True
+            cycle.last_heat_end = at
+        elif self._heating and at - (cycle.last_heat_end or at) >= timedelta(minutes=1):
+            # A minute without a plateau: the pump is running, the heating is
+            # over for now. Shorter than that and it is the same one breathing.
+            self._heating = False
 
     def _accumulate(self, at: datetime, watts: float) -> None:
         if self._cycle is None or self._previous is None:
@@ -443,9 +488,30 @@ class PlateauDetector:
         self._cycle = Cycle(started_at=started_at,
                             appliance=self.config.appliance,
                             last_active=started_at)
+        # A cycle is only proven several minutes in, and its opening heating is
+        # already behind us — count what the trace holds rather than start from
+        # zero and lose the first phase.
+        self._cycle.heats, self._cycle.last_heat_end = self._heats_so_far(
+            started_at, confirmed_at, baseline)
         return Transition(kind="started", at=confirmed_at, appliance=self.config.appliance,
                           started_at=started_at,
                           reason="palier de chauffe dans la bande du lave-vaisselle")
+
+    def _heats_so_far(self, since: datetime, until: datetime,
+                      baseline: float) -> tuple[int, datetime | None]:
+        """Heating phases already recorded in the trace, and when the last ended."""
+        cfg = self.config
+        count = 0
+        last_end: datetime | None = None
+        for stamp, watts in self._trace.samples:
+            if not since <= stamp <= until:
+                continue
+            if not cfg.step_min_w <= watts - baseline <= cfg.step_max_w:
+                continue
+            if last_end is None or stamp - last_end >= cfg.heat_separation:
+                count += 1
+            last_end = stamp
+        return count, last_end
 
     def _earliest_excursion(self, confirmed_at: datetime, baseline: float) -> datetime:
         """Walk back to the *first* heating of this cycle, not the one we proved.
@@ -484,10 +550,12 @@ class PlateauDetector:
         self._cycle = None
         self._candidate_at = None
         self._plateau_seen_at = None
+        self._heating = False
         return [Transition(kind="finished", at=ended_at, appliance=cycle.appliance or "",
                            started_at=cycle.started_at,
                            duration_minutes=(ended_at - cycle.started_at).total_seconds() / 60,
                            energy_wh=round(cycle.energy_wh, 1),
+                           heats=cycle.heats,
                            reason="durée attendue écoulée, plus de chauffe" if not overdue
                            else "durée maximale atteinte")]
 

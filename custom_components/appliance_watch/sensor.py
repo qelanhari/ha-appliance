@@ -46,6 +46,21 @@ SENSORS: tuple[WatcherSensor, ...] = (
         value=lambda state: state.appliance,
     ),
     WatcherSensor(
+        key="phase",
+        device_class=SensorDeviceClass.ENUM,
+        options=["veille", "chauffe", "cycle", "termine"],
+        # Only the dishwasher: its heating *is* the detection signal, so the
+        # stage can be stated rather than guessed. A washing machine's cannot.
+        watchers=(DISHWASHER,),
+        value=lambda state: state.stage,
+    ),
+    WatcherSensor(
+        key="chauffes",
+        watchers=(DISHWASHER,),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda state: state.heats,
+    ),
+    WatcherSensor(
         key="temps_restant",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
@@ -134,9 +149,11 @@ class ApplianceSensor(ApplianceEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, object] | None:
+        state = self.watcher_state
+        if self.entity_description.key == "chauffes":
+            return {"chauffes_attendues": state.expected_heats}
         if self.entity_description.key != "temps_restant":
             return None
-        state = self.watcher_state
         learned = state.fingerprints.get(state.appliance)
         return {
             "duree_attendue_min": round(state.expected.total_seconds() / 60),

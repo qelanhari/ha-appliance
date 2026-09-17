@@ -94,6 +94,18 @@
       },
       "conso_non_mesuree": {
         "name": "Unmetered consumption"
+      },
+      "phase": {
+        "name": "Stage",
+        "state": {
+          "veille": "Idle",
+          "chauffe": "Heating",
+          "cycle": "Running",
+          "termine": "Finished"
+        }
+      },
+      "chauffes": {
+        "name": "Heating phases"
       }
     }
   }
