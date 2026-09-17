@@ -26,6 +26,7 @@ from .const import (
     BOTH,
     CONF_CLASSIFY_W,
     CONF_DISHWASHER_NOMINAL,
+    CONF_DRYER_OFF_DELAY,
     CONF_LAUNDRY_METER,
     CONF_LAUNDRY_NOMINAL,
     CONF_MEASURED,
@@ -35,6 +36,7 @@ from .const import (
     CONF_TOTAL,
     DISHWASHER,
     DOMAIN,
+    DRYER,
     LAUNDRY,
     STORAGE_VERSION,
     TICK_SECONDS,
@@ -145,6 +147,9 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         base = SharedMeterConfig()
         return SharedMeterConfig(
             classify_w=float(entry_value(self.entry, CONF_CLASSIFY_W, base.classify_w)),
+            off_delay_burst=timedelta(minutes=float(entry_value(
+                self.entry, CONF_DRYER_OFF_DELAY,
+                base.off_delay_burst.total_seconds() / 60))),
             nominal=timedelta(minutes=float(entry_value(
                 self.entry, CONF_LAUNDRY_NOMINAL,
                 base.nominal.total_seconds() / 60))),
@@ -270,7 +275,18 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             # Two appliances counted as one teaches nothing about either.
             state.fingerprints[key] = record(
                 state.fingerprints.get(key, Fingerprint()),
-                transition.duration_minutes, transition.energy_wh or 0.0)
+                transition.duration_minutes, transition.energy_wh or 0.0,
+                transition.longest_pause_s or 0.0)
+        self._apply_learned_rhythm()
+
+    def _apply_learned_rhythm(self) -> None:
+        """Tell the laundry detector the worst dead time the dryer has taken.
+
+        Below that, a silence is the machine breathing between heats; above it,
+        it has been stopped. Nothing else distinguishes the two.
+        """
+        dryer = self.states[LAUNDRY].fingerprints.get(DRYER)
+        self._laundry.learned_pause_s = dryer.longest_pause_s if dryer else 0.0
 
     def _expected_for(self, state: WatcherState) -> timedelta:
         nominal = (self._dishwasher.config.nominal if state.appliance == DISHWASHER
@@ -292,6 +308,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             state.finished_at = _parse_utc(saved.get("finished_at"))
             state.fingerprints = {name: from_dict(value) for name, value
                                   in (saved.get("fingerprints") or {}).items()}
+        self._apply_learned_rhythm()
         # A cycle in flight is deliberately *not* restored: the detector has no
         # trace behind it after a restart, so it would count a countdown it can
         # neither confirm nor end.

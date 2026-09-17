@@ -88,6 +88,15 @@ Two traps the traces revealed, both handled:
 - The appliance is named on the **mean between T+15 and T+20**: measured 144 W
   for the washer, 1 035-1 983 W for the dryer. The bar sits at 800 W.
 - The cycle is dated from the rise, not from the burst.
+- The dryer — the one machine stopped part-way, to take the load out — gets a
+  shorter grace period than the washer's ten minutes. Not the one minute that
+  would be ideal: measured dead times *inside* a cycle reach **234 s**, and
+  cutting at a minute would end the activity ten minutes early, then open a
+  second one when the drum resumed. Six minutes is the ceiling, and it
+  **tightens as the machine's rhythm is learned** — twice the longest dead time
+  ever recorded, never under two minutes. Learned as a max, never an average: a
+  mean would licence cutting the first time the machine breathes longer than
+  usual. The figure is visible as `temps_mort_max_s` on the running sensor.
 - **Known limit**: the washer's drum (142-215 W) and the freezer's compressor
   draw alike, so no threshold separates them. Idling is therefore judged low,
   and a compressor running when the laundry finishes delays "terminé" by up to

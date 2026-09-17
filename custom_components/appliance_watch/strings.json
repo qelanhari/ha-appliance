@@ -27,22 +27,34 @@
           "step_max_w": "Échelon maximal du lave-vaisselle",
           "dishwasher_nominal_minutes": "Durée attendue d'un cycle de lave-vaisselle",
           "classify_w": "Seuil lave-linge / sèche-linge (moyenne à T+15…T+20)",
-          "laundry_nominal_minutes": "Durée attendue d'un cycle de buanderie"
+          "laundry_nominal_minutes": "Durée attendue d'un cycle de buanderie",
+          "dryer_off_delay_minutes": "Délai d'arrêt du sèche-linge"
+        },
+        "data_description": {
+          "dryer_off_delay_minutes": "Silence sous le seuil de veille avant de clore le cycle. Mesuré : jusqu'à 300 s de silence en plein cycle, donc en dessous de 6 min l'activité risque d'être coupée puis relancée."
         }
       }
     }
   },
   "entity": {
     "binary_sensor": {
-      "en_marche": { "name": "En marche" }
+      "en_marche": {
+        "name": "En marche"
+      }
     },
     "button": {
-      "oublier_empreintes": { "name": "Oublier les durées apprises" }
+      "oublier_empreintes": {
+        "name": "Oublier les durées apprises"
+      }
     },
     "sensor": {
       "etat": {
         "name": "État",
-        "state": { "veille": "Veille", "en_cours": "En cours", "termine": "Terminé" }
+        "state": {
+          "veille": "Veille",
+          "en_cours": "En cours",
+          "termine": "Terminé"
+        }
       },
       "appareil": {
         "name": "Appareil",
@@ -53,16 +65,36 @@
           "les_deux": "Les deux"
         }
       },
-      "temps_restant": { "name": "Temps restant" },
-      "progression": { "name": "Progression" },
-      "debut": { "name": "Début du cycle" },
-      "fin": { "name": "Fin du dernier cycle" },
-      "puissance": { "name": "Puissance estimée" },
-      "energie": { "name": "Énergie cumulée" },
-      "duree_dernier_cycle": { "name": "Durée du dernier cycle" },
-      "energie_dernier_cycle": { "name": "Énergie du dernier cycle" },
-      "cycles_appris": { "name": "Cycles observés" },
-      "conso_non_mesuree": { "name": "Consommation non mesurée" }
+      "temps_restant": {
+        "name": "Temps restant"
+      },
+      "progression": {
+        "name": "Progression"
+      },
+      "debut": {
+        "name": "Début du cycle"
+      },
+      "fin": {
+        "name": "Fin du dernier cycle"
+      },
+      "puissance": {
+        "name": "Puissance estimée"
+      },
+      "energie": {
+        "name": "Énergie cumulée"
+      },
+      "duree_dernier_cycle": {
+        "name": "Durée du dernier cycle"
+      },
+      "energie_dernier_cycle": {
+        "name": "Énergie du dernier cycle"
+      },
+      "cycles_appris": {
+        "name": "Cycles observés"
+      },
+      "conso_non_mesuree": {
+        "name": "Consommation non mesurée"
+      }
     }
   }
 }

@@ -45,4 +45,11 @@ class RunningBinarySensor(ApplianceEntity, BinarySensorEntity):
             "appareil": state.appliance,
             "debut": state.started_at.isoformat() if state.started_at else None,
             "duree_attendue_min": round(state.expected.total_seconds() / 60),
+            # The longest dead time ever seen inside a cycle: what tells a
+            # machine that has been stopped from one between two heats.
+            "temps_mort_max_s": {
+                name: round(fingerprint.longest_pause_s)
+                for name, fingerprint in state.fingerprints.items()
+                if fingerprint.longest_pause_s
+            },
         }

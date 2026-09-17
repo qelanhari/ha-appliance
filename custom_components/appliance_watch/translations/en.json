@@ -27,7 +27,11 @@
           "step_max_w": "Maximum dishwasher step",
           "dishwasher_nominal_minutes": "Expected dishwasher cycle length",
           "classify_w": "Washer / dryer threshold (mean at T+15…T+20)",
-          "laundry_nominal_minutes": "Expected laundry cycle length"
+          "laundry_nominal_minutes": "Expected laundry cycle length",
+          "dryer_off_delay_minutes": "Dryer stop delay"
+        },
+        "data_description": {
+          "dryer_off_delay_minutes": "Silence below the idle threshold before closing the cycle. Measured: mid-cycle silences up to 300 s, so under 6 min the activity risks being cut and restarted."
         }
       }
     }

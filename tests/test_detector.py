@@ -280,3 +280,43 @@ def test_a_single_reading_cannot_confirm_a_cycle():
     # Once the trace spans the hold, the same level does confirm.
     assert [e.kind for e in detector.feed(now + timedelta(seconds=25), 2100.0)] \
         == ["started"]
+
+
+def test_the_dryer_ends_sooner_than_the_washer():
+    """It is the machine stopped part-way, so it gets a shorter grace period.
+
+    Not the one minute that would be ideal: measured dead times *inside* a
+    cycle reach 234 s on one recording, and cutting at a minute would end the
+    activity ten minutes early, then open a second one when the drum resumes.
+    """
+    events = replay(SharedMeterDetector(), "dryer_wed_1745", tick_after=8)
+    finished = only(events, "finished")
+    assert finished.appliance == "seche_linge"
+    assert finished.at.strftime("%H:%M") == "18:48"  # last sustained draw
+    assert 55 <= finished.duration_minutes <= 65
+
+
+def test_the_rhythm_of_a_cycle_is_measured():
+    """Dead times are what tell "stopped" from "between heats" apart."""
+    finished = only(replay(SharedMeterDetector(), "dryer_mon_1250", tick_after=12),
+                    "finished")
+    assert finished.longest_pause_s >= 120  # this dryer really does pause that long
+
+
+def test_a_learned_rhythm_never_cuts_below_a_longer_dead_time():
+    """The rhythm is learned as a *max*, so one quiet cycle cannot licence it.
+
+    Feeding the detector a pause shorter than this cycle's own would end it
+    early — which is exactly what a mean would have done.
+    """
+    detector = SharedMeterDetector()
+    detector.learned_pause_s = 234.0  # the worst seen across cycles
+    finished = only(replay(detector, "dryer_mon_1250", tick_after=12), "finished")
+    assert 50 <= finished.duration_minutes <= 60
+
+
+def test_the_washer_still_gets_its_long_grace_period():
+    """Its drum dips under the idle threshold for a minute at a time."""
+    events = replay(SharedMeterDetector(), "washer_wed_0835")
+    assert kinds(events).count("finished") == 1
+    assert only(events, "finished").duration_minutes >= 55

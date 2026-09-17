@@ -22,6 +22,10 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # "brands" requires the domain to be registered in
+          # home-assistant/brands, which is for integrations published in the
+          # default HACS store. This one is installed as a custom repository.
+          ignore: brands
 
   tests:
     name: Detection logic

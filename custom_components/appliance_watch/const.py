@@ -33,6 +33,7 @@ CONF_STEP_MAX: Final = "step_max_w"
 CONF_CLASSIFY_W: Final = "classify_w"
 CONF_DISHWASHER_NOMINAL: Final = "dishwasher_nominal_minutes"
 CONF_LAUNDRY_NOMINAL: Final = "laundry_nominal_minutes"
+CONF_DRYER_OFF_DELAY: Final = "dryer_off_delay_minutes"
 
 # How often the watchers re-decide without a new reading. A meter that reports
 # on change falls silent exactly when a cycle ends, so the clock has to ask.

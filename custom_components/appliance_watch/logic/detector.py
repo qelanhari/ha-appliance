@@ -46,6 +46,8 @@ class Transition:
     started_at: datetime | None = None
     duration_minutes: float | None = None
     energy_wh: float | None = None
+    # Longest silence *inside* the cycle — how the machine's rhythm is learned.
+    longest_pause_s: float | None = None
     reason: str = ""
 
 
@@ -91,7 +93,17 @@ class SharedMeterConfig:
     # finished cycle open for another ten minutes each time.
     active_window: timedelta = timedelta(minutes=2)
     off_delay: timedelta = timedelta(minutes=10)
-    nominal: timedelta = timedelta(minutes=65)
+    # The dryer is the one machine stopped part-way through, so its cycle
+    # should close sooner than the washer's ten minutes. It cannot be as short
+    # as one minute though: measured mid-cycle silences under the idle
+    # threshold run to 300 s on one recorded cycle and 79 s on another, and a
+    # one-minute rule would have cut that activity ten minutes early — then
+    # started a second one when the drum picked up again. Six minutes clears
+    # the longest silence seen with a small margin.
+    off_delay_burst: timedelta = timedelta(minutes=6)
+    off_delay_floor: timedelta = timedelta(minutes=2)
+    active_window_burst: timedelta = timedelta(seconds=30)
+    nominal: timedelta = timedelta(minutes=60)
     # A second appliance joining a cycle already under way.
     # Washer running: its long programme heats up to three times, the last one
     # for ten minutes at 2 200 W. Averaged over twenty minutes that still only
@@ -151,6 +163,14 @@ class Cycle:
     peer: str | None = None
     energy_wh: float = 0.0
     last_active: datetime = field(default=datetime.min)
+    # Silences that *ended* — the machine's own rhythm between heats. The one
+    # that never ends is the cycle finishing, and is not counted here.
+    pauses_s: list[float] = field(default_factory=list)
+    quiet_since: datetime | None = None
+
+    @property
+    def longest_pause_s(self) -> float:
+        return max(self.pauses_s) if self.pauses_s else 0.0
 
 
 class SharedMeterDetector:
@@ -162,6 +182,7 @@ class SharedMeterDetector:
         self._armed_at: datetime | None = None
         self._cycle: Cycle | None = None
         self._previous: tuple[datetime, float] | None = None
+        self.learned_pause_s: float = 0.0
 
     @property
     def phase(self) -> Phase:
@@ -246,9 +267,19 @@ class SharedMeterDetector:
     def _while_running(self, at: datetime, watts: float) -> list[Transition]:
         cycle = self._cycle
         assert cycle is not None
-        sustained = self._trace.mean(at - self.config.active_window, at)
+        window = (self.config.active_window_burst
+                  if cycle.appliance == self.config.burst
+                  else self.config.active_window)
+        sustained = self._trace.mean(at - window, at)
         if sustained is not None and sustained >= self.config.idle_w:
+            if cycle.quiet_since is not None:
+                # A silence that ended: that is a pause in the machine's
+                # rhythm, not the end of the cycle.
+                cycle.pauses_s.append((at - cycle.quiet_since).total_seconds())
+                cycle.quiet_since = None
             cycle.last_active = max(cycle.last_active, at)
+        elif cycle.quiet_since is None:
+            cycle.quiet_since = at
 
         out: list[Transition] = []
         if cycle.appliance is None:
@@ -299,8 +330,24 @@ class SharedMeterDetector:
                            started_at=cycle.started_at,
                            reason=f"second appareil détecté ({evidence})")]
 
+    def _off_delay_for(self, cycle: Cycle) -> timedelta:
+        """How long a silence has to last before the cycle is called over.
+
+        For the dryer — the one machine stopped part-way — this tightens as the
+        machine's own rhythm becomes known: twice the longest pause ever seen
+        between two heats, never below two minutes nor above the configured
+        ceiling. Until a cycle has been watched end to end, the ceiling stands.
+        """
+        if cycle.appliance != self.config.burst:
+            return self.config.off_delay
+        ceiling = self.config.off_delay_burst
+        if self.learned_pause_s <= 0:
+            return ceiling
+        learned = timedelta(seconds=self.learned_pause_s * 2)
+        return max(self.config.off_delay_floor, min(ceiling, learned))
+
     def _maybe_finish(self, at: datetime, cycle: Cycle) -> list[Transition]:
-        if at - cycle.last_active < self.config.off_delay:
+        if at - cycle.last_active < self._off_delay_for(cycle):
             return []
         ended = cycle.last_active
         self._cycle = None
@@ -310,6 +357,7 @@ class SharedMeterDetector:
                            started_at=cycle.started_at,
                            duration_minutes=(ended - cycle.started_at).total_seconds() / 60,
                            energy_wh=round(cycle.energy_wh, 1),
+                           longest_pause_s=round(cycle.longest_pause_s),
                            reason="puissance retombée en veille")]
 
 

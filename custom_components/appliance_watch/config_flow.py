@@ -19,6 +19,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_CLASSIFY_W,
     CONF_DISHWASHER_NOMINAL,
+    CONF_DRYER_OFF_DELAY,
     CONF_LAUNDRY_METER,
     CONF_LAUNDRY_NOMINAL,
     CONF_MEASURED,
@@ -93,5 +94,8 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
             vol.Required(CONF_LAUNDRY_NOMINAL, default=entry_value(
                 entry, CONF_LAUNDRY_NOMINAL,
                 shared.nominal.total_seconds() / 60)): _number(10, 300, 1, "min"),
+            vol.Required(CONF_DRYER_OFF_DELAY, default=entry_value(
+                entry, CONF_DRYER_OFF_DELAY,
+                shared.off_delay_burst.total_seconds() / 60)): _number(1, 30, 1, "min"),
         })
         return self.async_show_form(step_id="init", data_schema=schema)
