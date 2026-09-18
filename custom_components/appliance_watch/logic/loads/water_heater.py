@@ -266,6 +266,16 @@ def _in_signal_hold(i: Inputs, thr: Thresholds) -> bool:
     return i.grid_smooth_w < thr.surplus_continue_margin_w
 
 
+def _is_rouge(colour: str | None) -> bool:
+    """ROUTEUR: one convention for the whole module.
+
+    The RTE sensor returns "Rouge" capitalised, but the two comparisons were
+    written differently — one exact, one lowercased — and an integration
+    upgrade that changed the case would have silently unlocked peak hours.
+    """
+    return (colour or "").strip().lower() == "rouge"
+
+
 def _rouge_hp_locked(i: Inputs, thr: Thresholds) -> bool:
     """ROUTEUR: on a Tempo Rouge peak hour, never *start* a cycle.
 
@@ -345,7 +355,7 @@ def _hc_checkpoint_action(i: Inputs, thr: Thresholds) -> Decision | None:
     # Two ways it cannot: the forecast is poor or unknown, or tomorrow is a
     # Rouge day — on which the router refuses to engage the contactor during
     # peak hours, so the sun is there but unusable.
-    tomorrow_is_rouge = (i.tempo_next_color or "").strip().lower() == "rouge"
+    tomorrow_is_rouge = _is_rouge(i.tempo_next_color)
     solar_can_wait = tomorrow_will_cover is True and not tomorrow_is_rouge
 
     if _near(now_t, thr.hc_rescue_time, thr.hc_checkpoint_tolerance_min):
@@ -472,9 +482,22 @@ def _decide_impl(i: Inputs, thr: Thresholds) -> Decision:
             "wait",
         )
 
-    # ROUTEUR: Rouge peak — above every automatic branch below, including the
-    # hard floor: the three night checkpoints have already had their chances,
-    # and a tank cannot fall from comfort to trouble between 06:00 and 06:30.
+    # ROUTEUR: comfort outranks the Rouge lock. The morning window runs to
+    # 07:00, an hour of which is peak, and someone showering at 06:15 can take
+    # the tank down several degrees in minutes — after which the next chance to
+    # heat would be 22:30. Saving a euro is not worth a cold shower, so the
+    # floor is checked first and the lock only governs the optimisations.
+    if (i.tank_middle_c is not None
+            and i.tank_middle_c < thr.hard_floor_c
+            and _in_morning_window(i.now, thr)):
+        return Decision(
+            True, False,
+            f"hard floor breach: tank_middle {i.tank_middle_c:.1f}°C < "
+            f"{thr.hard_floor_c:.0f}°C in morning window",
+            "hard_floor",
+        )
+
+    # Rouge peak — above every remaining automatic branch.
     if _rouge_hp_locked(i, thr):
         return Decision(
             False, False,
