@@ -87,7 +87,14 @@ class Inputs:
 
 @dataclass(frozen=True)
 class Thresholds:
-    hard_floor_c: float = 48.0
+    # ROUTEUR: lowered from 48 °C. It used to undo the whole night correction:
+    # a tank left at 46 °C because tomorrow was sunny simply got heated at
+    # 04:00 instead of 01:00, arriving full at dawn exactly as before. 48 °C
+    # was never a comfort line — the original picked it at 01:00 so that six
+    # hours of drift would still leave ~42 °C at the tap. Seen from 04:00 the
+    # same comfort line is 44 °C: three hours at the measured 0.4 °C/h lands
+    # at 42.8 °C. Below that, the weather stops mattering.
+    hard_floor_c: float = 44.0
     target_top_c: float = 54.0
     morning_window_start: time = time(4, 0)
     morning_window_end: time = time(7, 0)
@@ -314,14 +321,26 @@ def _hc_checkpoint_action(i: Inputs, thr: Thresholds) -> Decision | None:
     now_t = i.now.time()
     mid = i.tank_middle_c if i.tank_middle_c is not None else 0.0
     outdoor_cold = i.outdoor_c is not None and i.outdoor_c < thr.hc_cold_outdoor_c
+    # ROUTEUR: two different questions, two different tests, and mixing them
+    # made the heater run *more* at night — the opposite of the intent.
+    #
+    # "Is tomorrow bad enough to preheat?" is the original one, unchanged: it
+    # decides whether to spend cheap off-peak hours on a tank that is already
+    # warm. Feeding it the stricter surplus model turned every ordinary
+    # 13-16 kWh day into a "poor" one and heated a 50 °C tank at 01:00.
+    forecast_poor = will_likely_cover_heating_need(
+        i.forecast_tomorrow_kwh,
+        i.energy_needed_kwh,
+        thr.sunny_forecast_safety_factor,
+    ) is False
+    # "Can tomorrow's sun be trusted to refill a tank we chose not to?" is the
+    # new one, and it is the only place the surplus model belongs.
     tomorrow_will_cover = solar_can_cover(
         i.forecast_tomorrow_kwh,
         i.energy_needed_kwh,
         thr.pv_self_consumption_kwh,
         thr.sunny_forecast_safety_factor,
     )
-    # `False` (not None) means forecast known and *not* enough → poor day.
-    forecast_poor = tomorrow_will_cover is False
     # ROUTEUR: can tomorrow's sun be relied on to do this for free?
     # Two ways it cannot: the forecast is poor or unknown, or tomorrow is a
     # Rouge day — on which the router refuses to engage the contactor during

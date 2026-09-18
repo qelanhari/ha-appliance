@@ -113,6 +113,10 @@ def resample(points: list, grid: list[datetime], numeric: bool) -> list:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--days", type=int, default=3)
+    parser.add_argument("--date", action="append", default=[],
+                        help="journée précise (AAAA-MM-JJ), répétable ; "
+                             "les nuits d'avril-mai sont les seules où les "
+                             "branches nocturnes s'exécutent")
     parser.add_argument("--config", type=Path,
                         default=ROOT.parent / "claude-ha" / "config.env")
     args = parser.parse_args()
@@ -121,8 +125,12 @@ def main() -> None:
     FIXTURES.mkdir(parents=True, exist_ok=True)
 
     end = datetime.now(TZ).replace(second=0, microsecond=0)
-    for day in range(args.days, 0, -1):
-        day_start = (end - timedelta(days=day)).replace(hour=0, minute=0)
+    if args.date:
+        starts = [datetime.fromisoformat(d).replace(tzinfo=TZ) for d in args.date]
+    else:
+        starts = [(end - timedelta(days=day)).replace(hour=0, minute=0)
+                  for day in range(args.days, 0, -1)]
+    for day_start in starts:
         day_end = day_start + timedelta(days=1)
         series = fetch_day(url, token, list(SOURCES.values()), day_start, day_end)
 

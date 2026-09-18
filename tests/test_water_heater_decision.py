@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
+import pytest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -148,7 +149,7 @@ class TestSignalHold:
             replace(
                 base_inputs,
                 now=morning,
-                tank_middle_c=45.0,   # below 48 floor
+                tank_middle_c=43.0,   # below the 44 °C floor
                 signal_currently_on=True,
                 signal_on_at=morning - timedelta(minutes=30),
             ),
@@ -416,10 +417,15 @@ class TestSignalHold:
 
 
 class TestHardFloor:
+    # ROUTEUR: the floor moved from 48 °C to 44 °C, so these cases breach it
+    # at 43 °C where they used to at 45 °C. The intent is unchanged — what
+    # moved is where "too cold to argue about" sits. See the Thresholds
+    # comment: 48 °C was chosen at 01:00 to survive six hours of drift, and
+    # the same comfort line seen from 04:00 is 44 °C.
     def test_breach_in_morning_forces_on(self, base_inputs, thr):
         morning = datetime(2026, 6, 16, 5, 0, 0, tzinfo=timezone.utc)
         d = decide(
-            replace(base_inputs, now=morning, tank_middle_c=45.0),
+            replace(base_inputs, now=morning, tank_middle_c=43.0),
             thr,
         )
         assert d.signal_switch_on is True
@@ -427,7 +433,7 @@ class TestHardFloor:
         assert d.boost_mode_on is False   # safety only, no boost
 
     def test_breach_outside_morning_no_override(self, base_inputs, thr):
-        d = decide(replace(base_inputs, tank_middle_c=45.0), thr)
+        d = decide(replace(base_inputs, tank_middle_c=43.0), thr)
         assert d.action != "hard_floor"
 
     def test_missing_tank_middle_does_not_breach(self, base_inputs, thr):
@@ -799,3 +805,84 @@ class TestHpSolar:
         )
         assert d.signal_switch_on is True
         assert d.boost_mode_on is False
+
+
+# ---------------------------------------------------------------------------
+# ROUTEUR: the morning window, which is where the night correction was undone
+# ---------------------------------------------------------------------------
+
+
+class TestMorningFloorAgainstTheNightCorrection:
+    """The hole a review found: everything the checkpoints declined at 01:00
+    was heated anyway at 04:00, by a floor that never looked at the sky."""
+
+    def _at(self, base_inputs, hour, minute, **kw):
+        return replace(base_inputs, now=base_inputs.now.replace(
+            hour=hour, minute=minute), is_hc=True, **kw)
+
+    def test_a_tank_left_for_the_sun_is_not_reheated_at_04h00(
+        self, base_inputs, thr
+    ):
+        """46 °C with 25 kWh forecast: declined at 01:00, and it must stay
+        declined — otherwise the cycle simply moves three hours later and the
+        tank still arrives full at dawn."""
+        d = decide(
+            self._at(base_inputs, 4, 0, tank_middle_c=46.0,
+                     forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_the_morning_floor_still_catches_a_cold_tank(self, base_inputs, thr):
+        """Below it the weather stops mattering. Three hours of drift at the
+        measured 0.4 °C/h leaves ~42.8 °C at the tap."""
+        d = decide(
+            self._at(base_inputs, 4, 0, tank_middle_c=43.0,
+                     forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
+            thr,
+        )
+        assert d.signal_switch_on is True
+        assert d.action == "hard_floor"
+
+    def test_it_holds_across_the_whole_window(self, base_inputs, thr):
+        for hour, minute in ((4, 0), (5, 0), (6, 15), (6, 59)):
+            d = decide(
+                self._at(base_inputs, hour, minute, tank_middle_c=46.0,
+                         forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
+                thr,
+            )
+            assert d.signal_switch_on is False, f"{hour:02d}:{minute:02d}"
+
+
+class TestTheSurplusModelStaysWhereItBelongs:
+    """A review caught the correction leaking into the preheat branch, where
+    it made the heater run *more* at night — the opposite of the intent."""
+
+    def _at(self, base_inputs, **kw):
+        return replace(base_inputs, now=base_inputs.now.replace(hour=1, minute=0),
+                       is_hc=True, **kw)
+
+    @pytest.mark.parametrize("forecast", [25.0, 16.0, 13.0, 8.0])
+    def test_an_already_warm_tank_is_never_topped_up_at_night(
+        self, base_inputs, thr, forecast
+    ):
+        """50 °C is above every floor; only a forecast that cannot cover the
+        need at all justifies spending off-peak on it, exactly as before."""
+        d = decide(
+            self._at(base_inputs, tank_middle_c=50.0, energy_needed_kwh=1.5,
+                     forecast_tomorrow_kwh=forecast),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_but_a_forecast_that_cannot_cover_the_need_still_preheats(
+        self, base_inputs, thr
+    ):
+        """The original branch, untouched: a big need against a poor day."""
+        d = decide(
+            self._at(base_inputs, tank_middle_c=50.0, energy_needed_kwh=6.0,
+                     forecast_tomorrow_kwh=5.0),
+            thr,
+        )
+        assert d.signal_switch_on is True
+        assert "won't cover" in d.reason
