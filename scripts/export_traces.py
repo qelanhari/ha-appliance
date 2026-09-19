@@ -64,8 +64,15 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
      "lave-linge, programme long 120 min"),
     ("dryer_wed_1745", "garage", "2026-09-16T17:40", "2026-09-16T19:20",
      "sèche-linge, 70 min"),
-    ("dryer_mon_1250", "garage", "2026-09-14T12:40", "2026-09-14T13:55",
-     "sèche-linge, 60 min"),
+    # Étiquetée "sèche-linge" jusqu'au 19/09, à tort : après son bloc de
+    # chauffe elle tourne 42 min à 150 W médians sans jamais repasser au-dessus
+    # de 1000 W. Un sèche-linge qui cesse de chauffer à T+24 sortirait du linge
+    # mouillé. C'est un lavage à chaud, et le seuil de classification avait été
+    # calé pour satisfaire cette étiquette fausse.
+    ("washer_mon_1250", "garage", "2026-09-14T12:40", "2026-09-14T13:55",
+     "lave-linge, lavage à chaud, 60 min"),
+    ("washer_sat_1120", "garage", "2026-09-19T11:15", "2026-09-19T12:20",
+     "lave-linge, lavage à chaud — le cycle pris pour un sèche-linge"),
     # --- garage noise: 15 min around 180 W, must not start a cycle --------
     ("garage_blip_wed_0745", "garage", "2026-09-16T07:35", "2026-09-16T08:10",
      "parasite 180 W / 12 min"),
@@ -133,11 +140,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path,
                         default=ROOT.parent / "claude-ha" / "config.env")
+    parser.add_argument("--only", action="append", default=[],
+                        help="n'exporter que ces fenêtres (répétable) ; "
+                             "sans lui, toutes sont réexportées")
     args = parser.parse_args()
     url, token = load_token(args.config)
     FIXTURES.mkdir(parents=True, exist_ok=True)
 
     for name, kind, start_s, end_s, label in WINDOWS:
+        if args.only and name not in args.only:
+            continue
         start = datetime.fromisoformat(start_s).replace(tzinfo=TZ)
         end = datetime.fromisoformat(end_s).replace(tzinfo=TZ)
         entities = [GARAGE] if kind == "garage" else [TOTAL, *MEASURED]

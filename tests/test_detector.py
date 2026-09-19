@@ -117,7 +117,12 @@ def test_dishwasher_reports_a_plausible_energy():
     ("washer_wed_0835", "lave_linge", (55, 70)),
     ("washer_sat_1015", "lave_linge", (100, 130)),
     ("dryer_wed_1745", "seche_linge", (60, 80)),  # 17:48 -> 18:57 sur le compteur
-    ("dryer_mon_1250", "seche_linge", (50, 70)),
+    # Étiquetée « sèche-linge » jusqu'au 19/09 — voir la note dans
+    # scripts/export_traces.py. Le seuil de classification avait été calé pour
+    # satisfaire cette étiquette, et ce test verrouillait l'erreur.
+    ("washer_mon_1250", "lave_linge", (50, 70)),
+    # Le cycle signalé : un lavage à chaud nommé « sèche-linge » à T+20.
+    ("washer_sat_1120", "lave_linge", (40, 55)),
 ])
 def test_shared_meter_cycles_are_named_correctly(name, expected, duration):
     events = replay(SharedMeterDetector(), name)
@@ -298,9 +303,9 @@ def test_the_dryer_ends_sooner_than_the_washer():
 
 def test_the_rhythm_of_a_cycle_is_measured():
     """Dead times are what tell "stopped" from "between heats" apart."""
-    finished = only(replay(SharedMeterDetector(), "dryer_mon_1250", tick_after=12),
+    finished = only(replay(SharedMeterDetector(), "washer_mon_1250", tick_after=12),
                     "finished")
-    assert finished.longest_pause_s >= 120  # this dryer really does pause that long
+    assert finished.longest_pause_s >= 120  # this wash really does pause that long
 
 
 def test_a_learned_rhythm_never_cuts_below_a_longer_dead_time():
@@ -311,8 +316,120 @@ def test_a_learned_rhythm_never_cuts_below_a_longer_dead_time():
     """
     detector = SharedMeterDetector()
     detector.learned_pause_s = 234.0  # the worst seen across cycles
-    finished = only(replay(detector, "dryer_mon_1250", tick_after=12), "finished")
-    assert 50 <= finished.duration_minutes <= 60
+    finished = only(replay(detector, "dryer_wed_1745", tick_after=12), "finished")
+    assert 55 <= finished.duration_minutes <= 65
+
+
+def _synthetic(shape: list[tuple[float, float]]) -> list[tuple[datetime, float]]:
+    """(minutes, watts) segments -> one reading every 30 s."""
+    start = datetime(2026, 9, 20, 10, 0)
+    out, clock = [], 0.0
+    for minutes, watts in shape:
+        steps = int(minutes * 2)
+        for _ in range(steps):
+            out.append((start + timedelta(minutes=clock), watts))
+            clock += 0.5
+    return out
+
+
+def _run(points: list[tuple[datetime, float]], tick_after: int = 20) -> list:
+    detector = SharedMeterDetector()
+    out = []
+    for at, watts in points:
+        out += detector.feed(at, watts)
+    for minute in range(1, tick_after + 1):
+        out += detector.tick(points[-1][0] + timedelta(minutes=minute))
+    return out
+
+
+# --------------------------------------------------------------------------
+# Telling a hot wash from a drying cycle
+# --------------------------------------------------------------------------
+
+def test_a_hot_wash_is_not_named_while_it_is_still_heating():
+    """The bug of 19 Sept, as a test.
+
+    That wash heated its water from T+6.6 to T+27.8, so the T+15..T+20 window
+    read 2 182 W — the same thing a dryer reads. Naming it there is guessing;
+    the only honest answer at T+20 is "not yet".
+    """
+    events = replay(SharedMeterDetector(), "washer_sat_1120", tick_after=12)
+    identified = only(events, "identified")
+
+    assert identified.appliance == "lave_linge"
+    assert (identified.at - identified.started_at) > timedelta(minutes=20)
+    assert "plus de chauffe" in identified.reason
+
+
+def test_the_classification_window_does_not_stretch():
+    """The fast path reads a *fixed* [T+15, T+20], not "T+15 until now".
+
+    Ending it at the current instant stretches it a little every tick, so a hot
+    wash eventually dips under the threshold and the fast path claims it after
+    all. Two recorded washes were named that way at 790 and 797 W against a
+    threshold of 800 — right, by one percent, by accident.
+    """
+    for name in ("washer_mon_1250", "washer_sat_1120"):
+        identified = only(replay(SharedMeterDetector(), name, tick_after=12),
+                          "identified")
+        assert "moyenne" not in identified.reason, name
+
+
+def test_the_dryer_is_named_by_its_reheat():
+    """And soon enough to be worth displaying."""
+    identified = only(replay(SharedMeterDetector(), "dryer_wed_1745", tick_after=12),
+                      "identified")
+
+    assert identified.appliance == "seche_linge"
+    assert "chauffe repart" in identified.reason
+    assert (identified.at - identified.started_at) < timedelta(minutes=40)
+
+
+def test_a_compressor_surge_is_not_a_reheat():
+    """The freezer shares this circuit and surges past 1.5 kW for a second.
+
+    Long enough to look like the element firing again — which, once the cycle
+    is under way, would rename the washing machine.
+    """
+    points = _synthetic([(2, 2000), (24, 150)])
+    surge_at = points[-1][0] + timedelta(seconds=30)
+    points += [(surge_at, 2000.0), (surge_at + timedelta(seconds=1), 150.0)]
+    points += [(surge_at + timedelta(seconds=30 * i), 150.0) for i in range(2, 60)]
+
+    names = [t.appliance for t in _run(points) if t.kind == "identified"]
+    assert names == ["lave_linge"]
+
+
+def test_a_wrong_name_can_be_put_right_once():
+    """The safety net. Every branch that speaks early can only say "washer".
+
+    A dryer that rests long enough after its first heat is named washer, and
+    without this would keep that name for the whole cycle — with the washer's
+    longer grace period on top of it.
+    """
+    events = _run(_synthetic([
+        (2, 2000),   # the burst that confirms a cycle
+        (23, 150),   # long enough with no heat -> "washer"
+        (5, 2000),   # heats again
+        (5, 150),    # rests five minutes — a dryer's rhythm
+        (6, 2000),   # and fires again
+        (9, 150),
+        (12, 30),    # standby: the cycle can now close
+    ]))
+
+    identified = [t for t in events if t.kind == "identified"]
+    assert [t.appliance for t in identified] == ["lave_linge", "seche_linge"]
+    assert "correction" in identified[1].reason
+    assert only(events, "finished").appliance == "seche_linge"
+
+
+def test_a_name_is_only_corrected_once():
+    """Two renames in one cycle would be worse than one wrong name."""
+    events = _run(_synthetic([
+        (2, 2000), (23, 150),
+        (5, 2000), (5, 150), (6, 2000), (5, 150), (6, 2000), (9, 150), (12, 30),
+    ]))
+    assert len([t for t in events if t.kind == "identified"]) <= 2
 
 
 def test_the_washer_still_gets_its_long_grace_period():

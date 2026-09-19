@@ -1,7 +1,7 @@
 {
- "name": "dryer_mon_1250",
+ "name": "washer_mon_1250",
  "kind": "garage",
- "label": "sèche-linge, 60 min",
+ "label": "lave-linge, lavage à chaud, 60 min",
  "start": "2026-09-14T12:40:00+02:00",
  "end": "2026-09-14T13:55:00+02:00",
  "points": [
