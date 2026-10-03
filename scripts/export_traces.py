@@ -85,6 +85,8 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
     # ThinQ came up at 17:50 mid-wash: its first report dates the start 17:21.
     ("thinq_washer_sat_1720", "laundry", "2026-10-03T17:10", "2026-10-03T18:46",
      "lave-linge LG, 86 min annoncées — ThinQ branché en cours de cycle"),
+    ("thinq_dryer_sat_1846", "laundry", "2026-10-03T18:40", "2026-10-03T20:30",
+     "sèche-linge, juste après le lave-linge"),
     # --- garage noise: 15 min around 180 W, must not start a cycle --------
     ("garage_blip_wed_0745", "garage", "2026-09-16T07:35", "2026-09-16T08:10",
      "parasite 180 W / 12 min"),

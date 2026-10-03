@@ -155,6 +155,27 @@ def test_the_expected_length_follows_the_machine_s_revisions():
 
 
 # --------------------------------------------------------------------------
+# 3 Oct, straight after: the dryer, three minutes after the washer's "end"
+# --------------------------------------------------------------------------
+
+def test_the_dryer_follows_the_wash_and_is_named_at_once():
+    washer_events, dryer_events, _ = replay("thinq_dryer_sat_1846")
+    assert kinds(washer_events)[-1] == "finished"
+    assert kinds(dryer_events) == ["started", "finished"]
+    assert dryer_events[0].appliance == "seche_linge"
+    assert dryer_events[0].at.strftime("%H:%M") == "18:47"  # rose 18:46:45
+
+
+def test_the_dryer_ends_on_its_last_tumble_not_on_the_anti_crease_blips():
+    """After 19:46:51 the drum turns for 6 s every ten minutes: anti-crease,
+    not drying. 60 minutes, the nominal it was given."""
+    finished = replay("thinq_dryer_sat_1846")[1][-1]
+    assert finished.at.strftime("%H:%M:%S") == "19:46:51"
+    assert finished.duration_minutes == pytest.approx(60, abs=1)
+    assert 1400 < finished.energy_wh < 1700
+
+
+# --------------------------------------------------------------------------
 # What the washer follower must and must not conclude
 # --------------------------------------------------------------------------
 
