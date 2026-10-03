@@ -8,11 +8,13 @@
           "total_entity": "Whole-house consumption",
           "measured_entities": "Already metered appliances (subtracted)",
           "optional_entities": "Intermittent meters (unavailable when idle)",
-          "laundry_meter_entity": "Laundry meter (washer + dryer)"
+          "laundry_meter_entity": "Laundry meter (washer + dryer)",
+          "washer_status_entity": "Washer status sensor (LG ThinQ)"
         },
         "data_description": {
           "measured_entities": "A sensor that drops out suspends detection instead of counting 0 W: a missing reading would inflate the residual by exactly that much.",
-          "optional_entities": "A car charger, for instance, which reports nothing while unplugged."
+          "optional_entities": "A car charger, for instance, which reports nothing while unplugged.",
+          "washer_status_entity": "The machine's “Current status”. Its remaining time and programme length are read from the same device. While the washer is idle, whatever the laundry meter sees is the dryer."
         }
       }
     }
@@ -20,18 +22,19 @@
   "options": {
     "step": {
       "init": {
-        "title": "Detection thresholds",
+        "title": "Washer and detection thresholds",
         "description": "Measured on this installation: the dishwasher steps 1 940-2 015 W above the ambient base, the oven 2 150-2 230 W. The band must hold the first and exclude the second.",
         "data": {
+          "washer_status_entity": "Washer status sensor (LG ThinQ)",
           "step_min_w": "Minimum dishwasher step",
           "step_max_w": "Maximum dishwasher step",
           "dishwasher_nominal_minutes": "Expected dishwasher cycle length",
-          "classify_w": "Washer / dryer threshold (mean at T+15…T+20)",
-          "laundry_nominal_minutes": "Expected laundry cycle length",
-          "dryer_off_delay_minutes": "Dryer stop delay"
+          "dryer_off_delay_minutes": "Dryer stop delay",
+          "dryer_nominal_minutes": "Expected dryer cycle length"
         },
         "data_description": {
-          "dryer_off_delay_minutes": "Silence below the idle threshold before closing the cycle. Measured: mid-cycle silences up to 300 s, so under 6 min the activity risks being cut and restarted."
+          "dryer_off_delay_minutes": "Silence below the idle threshold before closing the cycle. Measured: mid-cycle silences up to 300 s, so under 6 min the activity risks being cut and restarted.",
+          "washer_status_entity": "The machine's “Current status”. Its remaining time and programme length are read from the same device. While the washer is idle, whatever the laundry meter sees is the dryer."
         }
       }
     }
@@ -54,15 +57,6 @@
           "veille": "Idle",
           "en_cours": "Running",
           "termine": "Finished"
-        }
-      },
-      "appareil": {
-        "name": "Appliance",
-        "state": {
-          "inconnu": "Identifying",
-          "lave_linge": "Washing machine",
-          "seche_linge": "Tumble dryer",
-          "les_deux": "Both"
         }
       },
       "temps_restant": {
@@ -106,6 +100,27 @@
       },
       "chauffes": {
         "name": "Heating phases"
+      },
+      "etape": {
+        "name": "Stage",
+        "state": {
+          "veille": "Idle",
+          "detection": "Sensing load",
+          "lavage": "Washing",
+          "rincage": "Rinsing",
+          "essorage": "Spinning",
+          "sechage": "Drying",
+          "vapeur": "Steam",
+          "refroidissement": "Cooling down",
+          "rafraichissement": "Refreshing",
+          "attente_rincage": "Rinse hold",
+          "pause": "Paused",
+          "erreur": "Error",
+          "termine": "Finished"
+        }
+      },
+      "fin_prevue": {
+        "name": "Expected end"
       }
     }
   }

@@ -8,11 +8,13 @@
           "total_entity": "Consommation totale de la maison",
           "measured_entities": "Appareils déjà mesurés (à retrancher)",
           "optional_entities": "Mesures intermittentes (indisponibles au repos)",
-          "laundry_meter_entity": "Compteur de la buanderie (lave-linge + sèche-linge)"
+          "laundry_meter_entity": "Compteur de la buanderie (lave-linge + sèche-linge)",
+          "washer_status_entity": "Capteur d'état du lave-linge (LG ThinQ)"
         },
         "data_description": {
           "measured_entities": "Un capteur qui tombe en panne suspend la détection plutôt que de compter 0 W : une mesure manquante fausserait le résidu d'autant.",
-          "optional_entities": "Par exemple une borne de recharge, qui ne publie rien quand rien n'est branché."
+          "optional_entities": "Par exemple une borne de recharge, qui ne publie rien quand rien n'est branché.",
+          "washer_status_entity": "Le « Current status » de la machine. Le temps restant et la durée du programme sont lus sur le même appareil. Quand le lave-linge ne tourne pas, ce que voit le compteur de la buanderie est le sèche-linge."
         }
       }
     }
@@ -20,18 +22,19 @@
   "options": {
     "step": {
       "init": {
-        "title": "Seuils de détection",
+        "title": "Lave-linge et seuils de détection",
         "description": "Valeurs mesurées sur l'installation : le lave-vaisselle monte de 1 940 à 2 015 W au-dessus de la base, le four de 2 150 à 2 230 W. La bande doit contenir le premier et exclure le second.",
         "data": {
+          "washer_status_entity": "Capteur d'état du lave-linge (LG ThinQ)",
           "step_min_w": "Échelon minimal du lave-vaisselle",
           "step_max_w": "Échelon maximal du lave-vaisselle",
           "dishwasher_nominal_minutes": "Durée attendue d'un cycle de lave-vaisselle",
-          "classify_w": "Seuil lave-linge / sèche-linge (moyenne à T+15…T+20)",
-          "laundry_nominal_minutes": "Durée attendue d'un cycle de buanderie",
-          "dryer_off_delay_minutes": "Délai d'arrêt du sèche-linge"
+          "dryer_off_delay_minutes": "Délai d'arrêt du sèche-linge",
+          "dryer_nominal_minutes": "Durée attendue d'un cycle de sèche-linge"
         },
         "data_description": {
-          "dryer_off_delay_minutes": "Silence sous le seuil de veille avant de clore le cycle. Mesuré : jusqu'à 300 s de silence en plein cycle, donc en dessous de 6 min l'activité risque d'être coupée puis relancée."
+          "dryer_off_delay_minutes": "Silence sous le seuil de veille avant de clore le cycle. Mesuré : jusqu'à 300 s de silence en plein cycle, donc en dessous de 6 min l'activité risque d'être coupée puis relancée.",
+          "washer_status_entity": "Le « Current status » de la machine. Le temps restant et la durée du programme sont lus sur le même appareil. Quand le lave-linge ne tourne pas, ce que voit le compteur de la buanderie est le sèche-linge."
         }
       }
     }
@@ -54,15 +57,6 @@
           "veille": "Veille",
           "en_cours": "En cours",
           "termine": "Terminé"
-        }
-      },
-      "appareil": {
-        "name": "Appareil",
-        "state": {
-          "inconnu": "En cours d'identification",
-          "lave_linge": "Lave-linge",
-          "seche_linge": "Sèche-linge",
-          "les_deux": "Les deux"
         }
       },
       "temps_restant": {
@@ -106,6 +100,27 @@
       },
       "chauffes": {
         "name": "Chauffes"
+      },
+      "etape": {
+        "name": "Étape",
+        "state": {
+          "veille": "Veille",
+          "detection": "Détection de la charge",
+          "lavage": "Lavage",
+          "rincage": "Rinçage",
+          "essorage": "Essorage",
+          "sechage": "Séchage",
+          "vapeur": "Vapeur",
+          "refroidissement": "Refroidissement",
+          "rafraichissement": "Rafraîchissement",
+          "attente_rincage": "Arrêt cuve pleine",
+          "pause": "Pause",
+          "erreur": "Erreur",
+          "termine": "Terminé"
+        }
+      },
+      "fin_prevue": {
+        "name": "Fin prévue"
       }
     }
   }

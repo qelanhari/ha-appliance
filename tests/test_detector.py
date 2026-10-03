@@ -2,8 +2,9 @@
 
 Every fixture under ``tests/fixtures/`` was recorded from the instance by
 ``scripts/export_traces.py``. The positives are the cycles that must be caught;
-the negatives — the oven, the hob, and the garage's fifteen-minute 180 W
-episodes — are the ones that must never raise a thing. They are the point of
+the negatives — the oven, the hob, the garage's fifteen-minute 180 W episodes,
+and every wash while the washer says it is running — are the ones that must
+never raise a thing. They are the point of
 this suite: a detector that only sees the positives is worthless here, since
 the dishwasher is read from a load it shares with the oven.
 """
@@ -19,10 +20,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
 from logic.detector import (  # noqa: E402
+    DryerConfig,
+    DryerDetector,
     PlateauConfig,
     PlateauDetector,
-    SharedMeterConfig,
-    SharedMeterDetector,
     elapsed_ratio,
     remaining_minutes,
 )
@@ -35,21 +36,28 @@ def trace(name: str) -> list[tuple[datetime, float]]:
     return [(datetime.fromisoformat(stamp), watts) for stamp, watts in payload["points"]]
 
 
-def replay(detector, name: str, tick_after: int = 20) -> list:
+def replay(detector, name: str, tick_after: int = 20, **washer) -> list:
     """Feed the trace, then let the clock run on.
 
     The coordinator ticks on a timer as well as on readings, because a meter
-    that reports on change falls silent exactly when a cycle ends.
+    that reports on change falls silent exactly when a cycle ends. ``washer``
+    is passed through to the dryer detector: what ThinQ says about the washer.
     """
     out = []
     last = None
     for at, watts in trace(name):
-        out += detector.feed(at, watts)
+        out += detector.feed(at, watts, **washer)
         last = at
     if last is not None:
         for minute in range(1, tick_after + 1):
-            out += detector.tick(last + timedelta(minutes=minute))
+            out += detector.tick(last + timedelta(minutes=minute), **washer)
     return out
+
+
+def dryer(name: str, tick_after: int = 20, washer: bool | None = False,
+          detector: DryerDetector | None = None) -> list:
+    """Replay a garage trace through the dryer, the washer idle unless told."""
+    return replay(detector or DryerDetector(), name, tick_after, washer=washer)
 
 
 def kinds(transitions: list) -> list[str]:
@@ -110,29 +118,35 @@ def test_dishwasher_reports_a_plausible_energy():
 
 
 # --------------------------------------------------------------------------
-# Washer / dryer — one shared meter
+# Dryer — the laundry meter, whenever ThinQ says the washer is idle
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("name, expected, duration", [
-    ("washer_wed_0835", "lave_linge", (55, 70)),
-    ("washer_sat_1015", "lave_linge", (100, 130)),
-    ("dryer_wed_1745", "seche_linge", (60, 80)),  # 17:48 -> 18:57 sur le compteur
-    # Étiquetée « sèche-linge » jusqu'au 19/09 — voir la note dans
-    # scripts/export_traces.py. Le seuil de classification avait été calé pour
-    # satisfaire cette étiquette, et ce test verrouillait l'erreur.
-    ("washer_mon_1250", "lave_linge", (50, 70)),
-    # Le cycle signalé : un lavage à chaud nommé « sèche-linge » à T+20.
-    ("washer_sat_1120", "lave_linge", (40, 55)),
-])
-def test_shared_meter_cycles_are_named_correctly(name, expected, duration):
-    events = replay(SharedMeterDetector(), name)
-    assert kinds(events) == ["started", "identified", "finished"]
-    assert only(events, "identified").appliance == expected
+WASHES = ["washer_wed_0835", "washer_sat_1015", "washer_mon_1250", "washer_sat_1120"]
 
+
+def test_a_drying_cycle_is_caught_end_to_end():
+    events = dryer("dryer_wed_1745")
+    assert kinds(events) == ["started", "finished"]
     finished = only(events, "finished")
-    assert finished.appliance == expected
-    low, high = duration
-    assert low <= finished.duration_minutes <= high
+    assert finished.appliance == "seche_linge"
+    assert 55 <= finished.duration_minutes <= 65  # 17:48 -> 18:48 on the meter
+
+
+@pytest.mark.parametrize("name", WASHES)
+def test_nothing_opens_while_the_washer_runs(name):
+    """The meter is the washer's then: a hot wash draws what a dryer draws.
+
+    Naming one by its power is the mistake that called a washer "sèche-linge"
+    on 19 Sept. ThinQ now says which machine runs, so nobody has to guess.
+    """
+    assert dryer(name, washer=True) == []
+
+
+@pytest.mark.parametrize("name", [*WASHES, "dryer_wed_1745"])
+def test_nothing_opens_while_thinq_has_no_answer(name):
+    """A missing answer is not "the washer is off" — no more than a missing
+    meter reading is 0 W. A dryer missed beats a washer named a dryer."""
+    assert dryer(name, washer=None) == []
 
 
 @pytest.mark.parametrize("name", [
@@ -140,25 +154,64 @@ def test_shared_meter_cycles_are_named_correctly(name, expected, duration):
 ])
 def test_the_fifteen_minute_180w_episodes_are_not_cycles(name):
     """Five of these in six days. Any plain "above 100 W" rule fires on them."""
-    assert replay(SharedMeterDetector(), name) == []
+    assert dryer(name) == []
 
 
 def test_a_cycle_is_dated_from_the_rise_not_from_the_heating_burst():
-    """The washer idles around 100-145 W for several minutes before it heats."""
-    start = only(replay(SharedMeterDetector(), "washer_wed_0835"), "started")
+    start = only(dryer("dryer_wed_1745"), "started")
     assert start.started_at < start.at
     assert (start.at - start.started_at) <= timedelta(minutes=10)
 
 
 def test_energy_is_time_weighted_not_sample_weighted():
-    """The dryer reports 80 samples for 70 minutes; the washer 1 300 for 60.
+    """The dryer reports 80 samples for 70 minutes; a wash 1 300 for 60.
 
     Counting samples instead of seconds would put the dryer's consumption an
     order of magnitude below the washer's.
     """
-    dryer = only(replay(SharedMeterDetector(), "dryer_wed_1745"), "finished")
-    washer = only(replay(SharedMeterDetector(), "washer_wed_0835"), "finished")
-    assert dryer.energy_wh > washer.energy_wh
+    drying = only(dryer("dryer_wed_1745"), "finished")
+    washing = only(dryer("washer_wed_0835"), "finished")  # as if it were a dryer
+    assert drying.energy_wh > washing.energy_wh
+
+
+def test_a_dryer_cycle_opened_by_the_washer_s_burst_is_withdrawn():
+    """ThinQ can lag the meter: the cycle the burst opened was the washer's."""
+    detector = DryerDetector()
+    start = datetime(2026, 10, 3, 17, 20)
+    for second in range(0, 120, 10):
+        detector.feed(start + timedelta(seconds=second), 1700.0, washer=False)
+    assert detector.cycle is not None
+
+    events = detector.washer_started(start + timedelta(minutes=1))
+    assert kinds(events) == ["cancelled"]
+    assert detector.cycle is None
+
+
+def test_a_dryer_already_running_survives_the_washer_joining():
+    detector = DryerDetector()
+    start = datetime(2026, 10, 3, 17, 0)
+    for second in range(0, 120, 10):
+        detector.feed(start + timedelta(seconds=second), 2000.0, washer=False)
+    assert detector.washer_started(start + timedelta(minutes=30)) == []
+    assert detector.cycle is not None
+
+
+def test_with_the_washer_on_the_meter_only_heating_keeps_the_dryer_alive():
+    """Its tumbling and the washer's drum look alike; its element does not."""
+    detector = DryerDetector()
+    start = datetime(2026, 10, 3, 17, 0)
+    clock = start
+    events = []
+    for minutes, watts, washer in [(5, 2000.0, False),   # dryer heating
+                                   (8, 200.0, True),     # both tumbling
+                                   (5, 2000.0, True),    # dryer reheats
+                                   (40, 180.0, True)]:   # washer alone
+        for _ in range(minutes * 2):
+            events += detector.feed(clock, watts, washer=washer)
+            clock += timedelta(seconds=30)
+    finished = only(events, "finished")
+    assert finished.at - start <= timedelta(minutes=19)  # its last heat
+    assert detector.cycle is None
 
 
 # --------------------------------------------------------------------------
@@ -192,37 +245,29 @@ def test_dishwasher_band_stays_clear_of_the_oven():
     assert cfg.step_max_w < 2150
 
 
-def test_shared_meter_confirmation_sits_above_the_parasite_episodes():
-    cfg = SharedMeterConfig()
+def test_dryer_confirmation_sits_above_the_parasite_episodes():
+    cfg = DryerConfig()
     assert cfg.arm_w < 180 < cfg.confirm_w  # the blips arm, but never confirm
-    assert cfg.classify_w > 300  # the washer's drum tops out around 300 W
+
+
+def test_the_washer_lag_covers_what_thinq_was_measured_at():
+    """3 Oct: the meter rose 2 min 19 s before the start ThinQ reports."""
+    assert DryerConfig().washer_lag >= timedelta(minutes=2, seconds=19) * 2
+
+
+def test_the_shared_end_waits_longer_than_the_dryer_rests_between_heats():
+    """Measured gap between two heats: 8.2 min."""
+    assert DryerConfig().shared_off_delay > timedelta(minutes=8.2)
 
 
 # --------------------------------------------------------------------------
 # What the traces taught, kept as guards
 # --------------------------------------------------------------------------
 
-def test_a_long_washer_programme_is_not_mistaken_for_a_second_appliance():
-    """That programme heats three times, the last for ten minutes at 2 200 W.
-
-    Averaged over twenty minutes it stays near 1 200 W, below the bar a dryer
-    running alongside would hold — which is exactly why the bar sits where it
-    does rather than where a five-minute window would have put it.
-    """
-    events = replay(SharedMeterDetector(), "washer_sat_1015")
-    assert "peer" not in kinds(events)
-
-
 def test_a_one_minute_blip_does_not_keep_a_finished_cycle_alive():
     """Two blips follow the dryer's last heat; each would add ten minutes."""
-    finished = only(replay(SharedMeterDetector(), "dryer_wed_1745"), "finished")
+    finished = only(dryer("dryer_wed_1745"), "finished")
     assert finished.at.strftime("%H:%M") < "19:00"
-
-
-def test_a_cycle_survives_the_troughs_inside_it():
-    """The washer's drum dips under 100 W for a minute at a time near the end."""
-    events = replay(SharedMeterDetector(), "washer_wed_0835")
-    assert kinds(events).count("finished") == 1
 
 
 def test_a_freezer_start_up_surge_does_not_confirm_a_cycle():
@@ -231,7 +276,7 @@ def test_a_freezer_start_up_surge_does_not_confirm_a_cycle():
     Touching the confirmation threshold is not enough — it has to be held, or
     every compressor start would open an hour-long laundry cycle.
     """
-    detector = SharedMeterDetector()
+    detector = DryerDetector()
     start = datetime(2026, 9, 17, 3, 0)
     events = []
     for second in range(0, 1800, 10):
@@ -239,15 +284,15 @@ def test_a_freezer_start_up_surge_does_not_confirm_a_cycle():
         # Compressor running at 120 W, with a one-second 2 kW inrush every
         # ten minutes.
         surge = second % 600 == 0
-        events += detector.feed(moment, 2000.0 if surge else 120.0)
+        events += detector.feed(moment, 2000.0 if surge else 120.0, washer=False)
         if surge:
-            events += detector.feed(moment + timedelta(seconds=1), 120.0)
+            events += detector.feed(moment + timedelta(seconds=1), 120.0, washer=False)
     assert events == []
 
 
 def test_a_real_heating_still_confirms_within_a_couple_of_minutes():
     """The held-burst rule must not push the start of a true cycle out."""
-    events = replay(SharedMeterDetector(), "dryer_wed_1745")
+    events = dryer("dryer_wed_1745")
     start = only(events, "started")
     assert start.at.strftime("%H:%M") <= "17:51"  # meter first read 17:48
 
@@ -259,13 +304,13 @@ def test_a_thirty_second_run_is_enough_to_confirm():
     seconds. The reporting interval is 14 s, so the confirmation has one or two
     readings to work with.
     """
-    detector = SharedMeterDetector()
+    detector = DryerDetector()
     start = datetime(2026, 9, 17, 16, 19, 52)
     trace_in = [(0, 31.0), (5, 2153.8), (19, 2143.2), (33, 2126.6),
                 (35, 219.2), (36, 29.1), (50, 29.5)]
     events = []
     for offset, watts in trace_in:
-        events += detector.feed(start + timedelta(seconds=offset), watts)
+        events += detector.feed(start + timedelta(seconds=offset), watts, washer=False)
     assert [event.kind for event in events] == ["started"]
 
 
@@ -277,13 +322,13 @@ def test_a_single_reading_cannot_confirm_a_cycle():
     in production: Home Assistant restarted during a burst, read 2 071 W once,
     and started an hour-long cycle dated from that instant.
     """
-    detector = SharedMeterDetector()
+    detector = DryerDetector()
     now = datetime(2026, 9, 17, 16, 24, 32)
-    assert detector.feed(now, 2071.7) == []
+    assert detector.feed(now, 2071.7, washer=False) == []
     # Still nothing a few seconds later: the window is not covered yet.
-    assert detector.feed(now + timedelta(seconds=5), 2100.0) == []
+    assert detector.feed(now + timedelta(seconds=5), 2100.0, washer=False) == []
     # Once the trace spans the hold, the same level does confirm.
-    assert [e.kind for e in detector.feed(now + timedelta(seconds=25), 2100.0)] \
+    assert [e.kind for e in detector.feed(now + timedelta(seconds=25), 2100.0, washer=False)] \
         == ["started"]
 
 
@@ -294,7 +339,7 @@ def test_the_dryer_ends_sooner_than_the_washer():
     cycle reach 234 s on one recording, and cutting at a minute would end the
     activity ten minutes early, then open a second one when the drum resumes.
     """
-    events = replay(SharedMeterDetector(), "dryer_wed_1745", tick_after=8)
+    events = dryer("dryer_wed_1745", tick_after=8)
     finished = only(events, "finished")
     assert finished.appliance == "seche_linge"
     assert finished.at.strftime("%H:%M") == "18:48"  # last sustained draw
@@ -302,10 +347,13 @@ def test_the_dryer_ends_sooner_than_the_washer():
 
 
 def test_the_rhythm_of_a_cycle_is_measured():
-    """Dead times are what tell "stopped" from "between heats" apart."""
-    finished = only(replay(SharedMeterDetector(), "washer_mon_1250", tick_after=12),
-                    "finished")
-    assert finished.longest_pause_s >= 120  # this wash really does pause that long
+    """Dead times are what tell "stopped" from "between heats" apart.
+
+    The one recorded dryer cycle never goes quiet, so the measurement is shown
+    on a trace that does: 234 s on that wash, the figure the floor rests on.
+    """
+    finished = only(dryer("washer_mon_1250", tick_after=12), "finished")
+    assert finished.longest_pause_s >= 120
 
 
 def test_a_learned_rhythm_never_cuts_below_a_longer_dead_time():
@@ -314,129 +362,10 @@ def test_a_learned_rhythm_never_cuts_below_a_longer_dead_time():
     Feeding the detector a pause shorter than this cycle's own would end it
     early — which is exactly what a mean would have done.
     """
-    detector = SharedMeterDetector()
+    detector = DryerDetector()
     detector.learned_pause_s = 234.0  # the worst seen across cycles
-    finished = only(replay(detector, "dryer_wed_1745", tick_after=12), "finished")
+    finished = only(dryer("dryer_wed_1745", tick_after=12, detector=detector), "finished")
     assert 55 <= finished.duration_minutes <= 65
-
-
-def _synthetic(shape: list[tuple[float, float]]) -> list[tuple[datetime, float]]:
-    """(minutes, watts) segments -> one reading every 30 s."""
-    start = datetime(2026, 9, 20, 10, 0)
-    out, clock = [], 0.0
-    for minutes, watts in shape:
-        steps = int(minutes * 2)
-        for _ in range(steps):
-            out.append((start + timedelta(minutes=clock), watts))
-            clock += 0.5
-    return out
-
-
-def _run(points: list[tuple[datetime, float]], tick_after: int = 20) -> list:
-    detector = SharedMeterDetector()
-    out = []
-    for at, watts in points:
-        out += detector.feed(at, watts)
-    for minute in range(1, tick_after + 1):
-        out += detector.tick(points[-1][0] + timedelta(minutes=minute))
-    return out
-
-
-# --------------------------------------------------------------------------
-# Telling a hot wash from a drying cycle
-# --------------------------------------------------------------------------
-
-def test_a_hot_wash_is_not_named_while_it_is_still_heating():
-    """The bug of 19 Sept, as a test.
-
-    That wash heated its water from T+6.6 to T+27.8, so the T+15..T+20 window
-    read 2 182 W — the same thing a dryer reads. Naming it there is guessing;
-    the only honest answer at T+20 is "not yet".
-    """
-    events = replay(SharedMeterDetector(), "washer_sat_1120", tick_after=12)
-    identified = only(events, "identified")
-
-    assert identified.appliance == "lave_linge"
-    assert (identified.at - identified.started_at) > timedelta(minutes=20)
-    assert "plus de chauffe" in identified.reason
-
-
-def test_the_classification_window_does_not_stretch():
-    """The fast path reads a *fixed* [T+15, T+20], not "T+15 until now".
-
-    Ending it at the current instant stretches it a little every tick, so a hot
-    wash eventually dips under the threshold and the fast path claims it after
-    all. Two recorded washes were named that way at 790 and 797 W against a
-    threshold of 800 — right, by one percent, by accident.
-    """
-    for name in ("washer_mon_1250", "washer_sat_1120"):
-        identified = only(replay(SharedMeterDetector(), name, tick_after=12),
-                          "identified")
-        assert "moyenne" not in identified.reason, name
-
-
-def test_the_dryer_is_named_by_its_reheat():
-    """And soon enough to be worth displaying."""
-    identified = only(replay(SharedMeterDetector(), "dryer_wed_1745", tick_after=12),
-                      "identified")
-
-    assert identified.appliance == "seche_linge"
-    assert "chauffe repart" in identified.reason
-    assert (identified.at - identified.started_at) < timedelta(minutes=40)
-
-
-def test_a_compressor_surge_is_not_a_reheat():
-    """The freezer shares this circuit and surges past 1.5 kW for a second.
-
-    Long enough to look like the element firing again — which, once the cycle
-    is under way, would rename the washing machine.
-    """
-    points = _synthetic([(2, 2000), (24, 150)])
-    surge_at = points[-1][0] + timedelta(seconds=30)
-    points += [(surge_at, 2000.0), (surge_at + timedelta(seconds=1), 150.0)]
-    points += [(surge_at + timedelta(seconds=30 * i), 150.0) for i in range(2, 60)]
-
-    names = [t.appliance for t in _run(points) if t.kind == "identified"]
-    assert names == ["lave_linge"]
-
-
-def test_a_wrong_name_can_be_put_right_once():
-    """The safety net. Every branch that speaks early can only say "washer".
-
-    A dryer that rests long enough after its first heat is named washer, and
-    without this would keep that name for the whole cycle — with the washer's
-    longer grace period on top of it.
-    """
-    events = _run(_synthetic([
-        (2, 2000),   # the burst that confirms a cycle
-        (23, 150),   # long enough with no heat -> "washer"
-        (5, 2000),   # heats again
-        (5, 150),    # rests five minutes — a dryer's rhythm
-        (6, 2000),   # and fires again
-        (9, 150),
-        (12, 30),    # standby: the cycle can now close
-    ]))
-
-    identified = [t for t in events if t.kind == "identified"]
-    assert [t.appliance for t in identified] == ["lave_linge", "seche_linge"]
-    assert "correction" in identified[1].reason
-    assert only(events, "finished").appliance == "seche_linge"
-
-
-def test_a_name_is_only_corrected_once():
-    """Two renames in one cycle would be worse than one wrong name."""
-    events = _run(_synthetic([
-        (2, 2000), (23, 150),
-        (5, 2000), (5, 150), (6, 2000), (5, 150), (6, 2000), (9, 150), (12, 30),
-    ]))
-    assert len([t for t in events if t.kind == "identified"]) <= 2
-
-
-def test_the_washer_still_gets_its_long_grace_period():
-    """Its drum dips under the idle threshold for a minute at a time."""
-    events = replay(SharedMeterDetector(), "washer_wed_0835")
-    assert kinds(events).count("finished") == 1
-    assert only(events, "finished").duration_minutes >= 55
 
 
 # --------------------------------------------------------------------------

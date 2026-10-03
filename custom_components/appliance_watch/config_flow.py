@@ -1,8 +1,8 @@
 """Install wizard and Options.
 
 The install step asks only what cannot be guessed: which sensor totals the
-house, which ones are already metered (so they can be subtracted), and which
-meter the laundry room shares. Detection thresholds are deliberately *not*
+house, which ones are already metered (so they can be subtracted), which meter
+the laundry room shares, and which LG ThinQ sensor reports the washer. Detection thresholds are deliberately *not*
 asked for at install — they have sane measured defaults, and they belong in
 Options where changing one is a deliberate act.
 """
@@ -17,22 +17,25 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
-    CONF_CLASSIFY_W,
     CONF_DISHWASHER_NOMINAL,
+    CONF_DRYER_NOMINAL,
     CONF_DRYER_OFF_DELAY,
     CONF_LAUNDRY_METER,
-    CONF_LAUNDRY_NOMINAL,
     CONF_MEASURED,
     CONF_OPTIONAL,
     CONF_STEP_MAX,
     CONF_STEP_MIN,
     CONF_TOTAL,
+    CONF_WASHER_STATUS,
     DOMAIN,
     entry_value,
 )
-from .logic.detector import PlateauConfig, SharedMeterConfig
+from .logic.detector import DryerConfig, PlateauConfig
 
 POWER_SENSOR = selector.EntitySelectorConfig(domain="sensor", device_class="power")
+# Its remaining-time and total-time siblings are found on the same device.
+WASHER_STATUS = selector.EntitySelector(selector.EntitySelectorConfig(
+    domain="sensor", integration="lg_thinq", device_class="enum"))
 
 
 def _install_schema() -> vol.Schema:
@@ -44,6 +47,7 @@ def _install_schema() -> vol.Schema:
         vol.Optional(CONF_OPTIONAL, default=[]): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="sensor", multiple=True)),
         vol.Required(CONF_LAUNDRY_METER): selector.EntitySelector(POWER_SENSOR),
+        vol.Required(CONF_WASHER_STATUS): WASHER_STATUS,
     })
 
 
@@ -72,7 +76,11 @@ class ApplianceWatchConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ApplianceWatchOptionsFlow(OptionsFlow):
-    """Detection thresholds. ``self.config_entry`` is injected by Home Assistant."""
+    """The washer's sensor and the detection thresholds.
+
+    ``self.config_entry`` is injected by Home Assistant. The washer's sensor is
+    here too, because an entry installed before 0.5 has none to start with.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None
                               ) -> ConfigFlowResult:
@@ -80,8 +88,10 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
             return self.async_create_entry(data=user_input)
 
         entry = self.config_entry
-        plateau, shared = PlateauConfig(), SharedMeterConfig()
+        plateau, dryer = PlateauConfig(), DryerConfig()
         schema = vol.Schema({
+            vol.Required(CONF_WASHER_STATUS, description={
+                "suggested_value": entry_value(entry, CONF_WASHER_STATUS)}): WASHER_STATUS,
             vol.Required(CONF_STEP_MIN, default=entry_value(
                 entry, CONF_STEP_MIN, plateau.step_min_w)): _number(500, 4000, 10, "W"),
             vol.Required(CONF_STEP_MAX, default=entry_value(
@@ -89,13 +99,11 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
             vol.Required(CONF_DISHWASHER_NOMINAL, default=entry_value(
                 entry, CONF_DISHWASHER_NOMINAL,
                 plateau.nominal.total_seconds() / 60)): _number(10, 300, 1, "min"),
-            vol.Required(CONF_CLASSIFY_W, default=entry_value(
-                entry, CONF_CLASSIFY_W, shared.classify_w)): _number(100, 3000, 10, "W"),
-            vol.Required(CONF_LAUNDRY_NOMINAL, default=entry_value(
-                entry, CONF_LAUNDRY_NOMINAL,
-                shared.nominal.total_seconds() / 60)): _number(10, 300, 1, "min"),
+            vol.Required(CONF_DRYER_NOMINAL, default=entry_value(
+                entry, CONF_DRYER_NOMINAL,
+                dryer.nominal.total_seconds() / 60)): _number(10, 300, 1, "min"),
             vol.Required(CONF_DRYER_OFF_DELAY, default=entry_value(
                 entry, CONF_DRYER_OFF_DELAY,
-                shared.off_delay_burst.total_seconds() / 60)): _number(1, 30, 1, "min"),
+                dryer.off_delay.total_seconds() / 60)): _number(1, 30, 1, "min"),
         })
         return self.async_show_form(step_id="init", data_schema=schema)

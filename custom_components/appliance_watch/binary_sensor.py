@@ -42,7 +42,6 @@ class RunningBinarySensor(ApplianceEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, object]:
         state = self.watcher_state
         return {
-            "appareil": state.appliance,
             "debut": state.started_at.isoformat() if state.started_at else None,
             "duree_attendue_min": round(state.expected.total_seconds() / 60),
             # The longest dead time ever seen inside a cycle: what tells a

@@ -6,9 +6,11 @@ so the test suite replays what the appliances actually drew. This script pulls
 the windows listed in ``WINDOWS`` from the recorder and writes one JSON file
 per window into ``tests/fixtures/``.
 
-Two kinds of trace:
+Three kinds of trace:
 
 * ``garage`` — a single measured sensor (washer + dryer share that Shelly);
+* ``laundry`` — the same meter, plus what LG ThinQ said about the washer
+  (status, predicted end, programme length) over the window;
 * ``residual`` — the *unmeasured* house load, i.e. total consumption minus every
   measured appliance. That is where the dishwasher hides, next to the oven.
 
@@ -31,6 +33,12 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures"
 
 GARAGE = "sensor.shellyproem50_a0dd6ca07f48_em1_power"
+# The washer since 3 Oct 2026, an LG on ThinQ: raw states, not watts.
+WASHER = {
+    "status": "sensor.lave_linge_current_status",
+    "ends_at": "sensor.lave_linge_remaining_time",
+    "total": "sensor.lave_linge_total_time",
+}
 TOTAL = "sensor.load"
 # Everything already metered elsewhere, with the factor needed to reach watts:
 # the Tesla wall connector reports kW and goes unavailable when idle.
@@ -73,6 +81,10 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
      "lave-linge, lavage à chaud, 60 min"),
     ("washer_sat_1120", "garage", "2026-09-19T11:15", "2026-09-19T12:20",
      "lave-linge, lavage à chaud — le cycle pris pour un sèche-linge"),
+    # --- the new washer reports itself: the meter only has the dryer to find
+    # ThinQ came up at 17:50 mid-wash: its first report dates the start 17:21.
+    ("thinq_washer_sat_1720", "laundry", "2026-10-03T17:10", "2026-10-03T18:46",
+     "lave-linge LG, 86 min annoncées — ThinQ branché en cours de cycle"),
     # --- garage noise: 15 min around 180 W, must not start a cycle --------
     ("garage_blip_wed_0745", "garage", "2026-09-16T07:35", "2026-09-16T08:10",
      "parasite 180 W / 12 min"),
@@ -93,16 +105,32 @@ def load_token(config: Path) -> tuple[str, str]:
     return env["HA_URL"], env["HA_TOKEN"]
 
 
-def fetch(url: str, token: str, entities: list[str],
-          start: datetime, end: datetime) -> dict[str, list[tuple[datetime, float]]]:
+def fetch_raw(url: str, token: str, entities: list[str],
+              start: datetime, end: datetime) -> list[list[dict]]:
     query = (f"{url}/api/history/period/{urllib.parse.quote(start.isoformat())}"
              f"?filter_entity_id={','.join(entities)}"
              f"&end_time={urllib.parse.quote(end.isoformat())}"
              "&minimal_response&no_attributes")
     request = urllib.request.Request(query, headers={"Authorization": f"Bearer {token}"})
     with urllib.request.urlopen(request) as response:
-        blocks = json.load(response)
+        return json.load(response)
 
+
+def fetch_states(url: str, token: str, entities: list[str],
+                 start: datetime, end: datetime) -> dict[str, list[list[str]]]:
+    """Raw states, ``unavailable`` included: for ThinQ that *is* information."""
+    return {
+        block[0]["entity_id"]: [
+            [datetime.fromisoformat(state.get("last_changed") or state["last_updated"])
+             .astimezone(TZ).isoformat(), state["state"]]
+            for state in block]
+        for block in fetch_raw(url, token, entities, start, end) if block
+    }
+
+
+def fetch(url: str, token: str, entities: list[str],
+          start: datetime, end: datetime) -> dict[str, list[tuple[datetime, float]]]:
+    blocks = fetch_raw(url, token, entities, start, end)
     series: dict[str, list[tuple[datetime, float]]] = {}
     for block in blocks:
         if not block:
@@ -152,10 +180,10 @@ def main() -> None:
             continue
         start = datetime.fromisoformat(start_s).replace(tzinfo=TZ)
         end = datetime.fromisoformat(end_s).replace(tzinfo=TZ)
-        entities = [GARAGE] if kind == "garage" else [TOTAL, *MEASURED]
+        entities = [TOTAL, *MEASURED] if kind == "residual" else [GARAGE]
         series = fetch(url, token, entities, start, end)
-        points = series.get(GARAGE, []) if kind == "garage" else residual_trace(series)
-        payload = {
+        points = residual_trace(series) if kind == "residual" else series.get(GARAGE, [])
+        payload: dict = {
             "name": name,
             "kind": kind,
             "label": label,
@@ -163,6 +191,10 @@ def main() -> None:
             "end": end.isoformat(),
             "points": [[stamp.isoformat(), round(value, 1)] for stamp, value in points],
         }
+        if kind == "laundry":
+            states = fetch_states(url, token, list(WASHER.values()), start, end)
+            payload["washer"] = {key: states.get(entity, [])
+                                 for key, entity in WASHER.items()}
         target = FIXTURES / f"{name}.json"
         target.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n")
         print(f"{name:24s} {kind:9s} {len(points):5d} points  {label}")

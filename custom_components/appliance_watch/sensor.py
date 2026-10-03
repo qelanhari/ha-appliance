@@ -17,9 +17,10 @@ from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOf
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import BOTH, DISHWASHER, DOMAIN, DRYER, LAUNDRY, UNKNOWN, WASHER, WATCHERS
+from .const import DISHWASHER, DOMAIN, DRYER, WASHER, WATCHERS
 from .coordinator import ApplianceCoordinator, WatcherState
 from .entity import ApplianceEntity
+from .logic.washer import STAGES
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -38,20 +39,20 @@ SENSORS: tuple[WatcherSensor, ...] = (
         value=lambda state: state.phase.value,
     ),
     WatcherSensor(
-        key="appareil",
-        device_class=SensorDeviceClass.ENUM,
-        options=[UNKNOWN, WASHER, DRYER, BOTH],
-        # Only the shared meter has anything to guess.
-        watchers=(LAUNDRY,),
-        value=lambda state: state.appliance,
-    ),
-    WatcherSensor(
         key="phase",
         device_class=SensorDeviceClass.ENUM,
         options=["veille", "chauffe", "cycle", "termine"],
-        # Only the dishwasher: its heating *is* the detection signal, so the
-        # stage can be stated rather than guessed. A washing machine's cannot.
+        # The dishwasher's heating *is* the detection signal, so its stage can
+        # be stated rather than guessed. The dryer's cannot.
         watchers=(DISHWASHER,),
+        value=lambda state: state.stage,
+    ),
+    WatcherSensor(
+        key="etape",
+        device_class=SensorDeviceClass.ENUM,
+        options=["veille", *STAGES.values(), "termine"],
+        # As the washer itself reports it.
+        watchers=(WASHER,),
         value=lambda state: state.stage,
     ),
     WatcherSensor(
@@ -70,6 +71,11 @@ SENSORS: tuple[WatcherSensor, ...] = (
         key="progression",
         native_unit_of_measurement=PERCENTAGE,
         value=lambda state: state.progress,
+    ),
+    WatcherSensor(
+        key="fin_prevue",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value=lambda state: state.expected_end,
     ),
     WatcherSensor(
         key="debut",
@@ -115,6 +121,8 @@ SENSORS: tuple[WatcherSensor, ...] = (
     ),
     WatcherSensor(
         key="cycles_appris",
+        # The washer announces its own length; there is nothing to learn.
+        watchers=(DISHWASHER, DRYER),
         entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda state: sum(f.samples for f in state.fingerprints.values()),
     ),

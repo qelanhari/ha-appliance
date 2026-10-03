@@ -9,30 +9,32 @@ from homeassistant.config_entries import ConfigEntry
 DOMAIN: Final = "appliance_watch"
 STORAGE_VERSION: Final = 1
 
-# Two watchers, because the two situations are not alike: one appliance nobody
-# measures, and two appliances sharing a meter.
+# Three watchers, one per machine: the dishwasher nobody measures, the washer
+# that reports itself through LG ThinQ, and the dryer read off the meter it
+# shares with the washer.
 DISHWASHER: Final = "lave_vaisselle"
-LAUNDRY: Final = "buanderie"
 WASHER: Final = "lave_linge"
 DRYER: Final = "seche_linge"
 
-WATCHERS: Final = (DISHWASHER, LAUNDRY)
-# What the laundry meter can be showing at any moment.
-UNKNOWN: Final = "inconnu"
-BOTH: Final = "les_deux"
+WATCHERS: Final = (DISHWASHER, WASHER, DRYER)
+# Before 0.5 the washer and the dryer were one watcher; its store key is read
+# once to carry the dryer's learned rhythm over.
+LEGACY_LAUNDRY: Final = "buanderie"
 
 CONF_TOTAL: Final = "total_entity"
 CONF_MEASURED: Final = "measured_entities"
 CONF_OPTIONAL: Final = "optional_entities"
 CONF_LAUNDRY_METER: Final = "laundry_meter_entity"
+# The washer's ThinQ "current status" sensor. Its remaining-time and total-time
+# siblings are found on the same device.
+CONF_WASHER_STATUS: Final = "washer_status_entity"
 
 # Detection knobs surfaced in the Options flow. Their defaults live in the
 # logic dataclasses; see README.md for the traces they were measured from.
 CONF_STEP_MIN: Final = "step_min_w"
 CONF_STEP_MAX: Final = "step_max_w"
-CONF_CLASSIFY_W: Final = "classify_w"
 CONF_DISHWASHER_NOMINAL: Final = "dishwasher_nominal_minutes"
-CONF_LAUNDRY_NOMINAL: Final = "laundry_nominal_minutes"
+CONF_DRYER_NOMINAL: Final = "dryer_nominal_minutes"
 CONF_DRYER_OFF_DELAY: Final = "dryer_off_delay_minutes"
 
 # How often the watchers re-decide without a new reading. A meter that reports

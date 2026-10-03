@@ -1,43 +1,45 @@
 # Appliance Watch
 
-Home Assistant integration that follows a washing machine, a tumble dryer and a
-dishwasher **through their power draw alone** — no smart appliance, no dedicated
-plug — and exposes the discrete states an iOS Live Activity needs.
+Home Assistant integration that follows a dishwasher, a washing machine and a
+tumble dryer, and exposes the discrete states an iOS Live Activity needs.
 
-It exists for two situations that the usual "appliance finished" blueprints do
-not handle:
+It exists for the situations the usual "appliance finished" blueprints do not
+handle:
 
-- **two appliances behind one meter.** The washer and the dryer share a single
-  Shelly, so a threshold tells you *something* is running, never *what*.
 - **an appliance nothing measures at all.** The dishwasher is read from the
   house's unmetered consumption — total draw minus every metered appliance —
   where it sits right next to the oven.
+- **two appliances behind one meter.** The washer and the dryer share a single
+  Shelly. The washer — an LG — reports itself through **LG ThinQ**, so whatever
+  the meter sees while the washer is idle is the dryer.
 
 ## What it creates
 
-Two devices, *Lave-vaisselle* and *Buanderie*, each with:
+Three devices, *Lave-vaisselle*, *Lave-linge* and *Sèche-linge*, each with:
 
 | Entity | Use |
 |---|---|
 | `binary_sensor.*_en_marche` | the trigger for a Live Activity — a discrete transition, never a power sensor |
 | `sensor.*_etat` | `veille` / `en_cours` / `termine` |
-| `sensor.*_appareil` | laundry only: `inconnu` → `lave_linge` / `seche_linge` / `les_deux` |
 | `sensor.*_phase` | dishwasher only: `veille` / `chauffe` / `cycle` / `termine` |
 | `sensor.*_chauffes` | dishwasher only: heating phases so far, with the learned total as an attribute |
-| `sensor.*_temps_restant` | minutes, from the learned duration — feeds `when` |
+| `sensor.*_etape` | washer only: the stage ThinQ reports — `lavage`, `rincage`, `essorage`, `pause`… |
+| `sensor.*_temps_restant` | minutes — feeds `when`. The washer's is ThinQ's own; the others come from the learned duration |
+| `sensor.*_fin_prevue` | timestamp of the expected end |
 | `sensor.*_progression` | percent — feeds `progress` |
 | `sensor.*_puissance` | estimated draw, for a tile or a message |
 | `sensor.*_energie` | kWh, `total_increasing` → shows up in the Energy dashboard |
 | `sensor.*_debut`, `*_fin`, `*_duree_dernier_cycle`, `*_energie_dernier_cycle` | history |
+| `sensor.*_cycles_appris` | dishwasher and dryer: cycles learned from |
 | `sensor.lave_vaisselle_conso_non_mesuree` | the residual itself — the number to look at when a cycle is missed or invented |
-| `button.buanderie_oublier_empreintes` | throw away what was learned |
+| `button.seche_linge_oublier_empreintes` | throw away what was learned |
 
 Entity *ids* follow the Home Assistant UI language — an English instance gets
-`binary_sensor.buanderie_running` for the row above. The unique ids, and the
+`binary_sensor.lave_linge_running` for the row above. The unique ids, and the
 translation keys, do not move.
 
 Every cycle fires an `appliance_watch_cycle` event (`watcher`, `kind`,
-`appliance`, `reason`).
+`appliance`, `reason`); `kind` is `started`, `finished` or `cancelled`.
 
 ## How it decides
 
@@ -70,44 +72,58 @@ Two traps the traces revealed, both handled:
   two heating phases, and its final dry draws nothing. The expected duration
   carries the cycle; a late heating extends it.
 
-### Washer / dryer — one meter, two appliances
+### Washer — as LG ThinQ reports it
+
+Nothing is inferred. A ThinQ status of `detecting`, `running`, `rinsing`,
+`spinning`… opens the cycle, `end` or `power_off` closes it. A `pause`, a
+`rinse_hold` or an `error` keeps it open: the drum is still full.
+
+- **The start is the machine's**, not the moment Home Assistant heard of it:
+  predicted end minus programme length. That is what recovers it after a
+  restart mid-cycle — unlike the meter-read machines, the washer *is* restored
+  — or behind a slow cloud. On 3 Oct ThinQ came up half an hour into a wash
+  and dated it 17:21:13; the meter had risen at 17:18:54, for the load sensing.
+- ThinQ publishes the status a few milliseconds before the predicted end and
+  the length, so the start is corrected on the update after it.
+- The remaining time and the end follow ThinQ's revisions — a few minutes
+  either way over the cycle.
+- The energy is read off the laundry meter, except while the dryer runs too:
+  the meter cannot split them, and the dryer gets the whole reading.
+- `unavailable` is "no answer", never "off": a cycle already open stays open.
+
+### Dryer — the laundry meter, when the washer is idle
 
 | | measured |
 |---|---|
-| Washer | heats ~7 min at 2 270-2 431 W, then runs at 150-300 W. 60 min, or 120 on the long programme |
-| Dryer | 1 871-2 206 W in repeated plateaus across the whole cycle. 60-70 min |
+| Dryer | 1 871-2 206 W in repeated plateaus across the whole cycle, 8.2 min apart. 60-70 min |
 | Standby | 30 W, brief 75 W blips — **and 15-minute episodes at ~180 W** |
 | Freezer (same circuit) | ~120 W running, **surging to 1.5-2 kW on every compressor start** |
 
 - A rise above 100 W only *arms* a cycle; it is confirmed by a burst above
   1 500 W **held for twenty seconds**, within ten minutes of arming. The 180 W
-  episodes — five in six days — arm and expire without ever confirming.
-  Twenty seconds comes from the meter: over twelve days, all sixteen genuine
-  excursions past 1 500 W lasted **129 seconds or more**, and none lasted less,
-  so the rule clears a real cycle six times over. The freezer's inrush never
-  reaches the state stream at all — the meter averages it away, and it only
-  shows up in the statistics `max`.
-- The appliance is named on the **mean between T+15 and T+20**: measured 144 W
-  for the washer, 1 035-1 983 W for the dryer. The bar sits at 800 W.
+  episodes — five in six days — arm and expire without ever confirming. The
+  freezer's inrush never reaches the state stream at all — the meter averages
+  it away.
+- **Only while ThinQ says the washer is idle.** A hot wash draws exactly what
+  the dryer draws; telling them apart by power is the mistake that named a
+  washer "sèche-linge" on 19 Sept. If ThinQ has no answer, no dryer cycle
+  opens: a missed dryer beats a washer named a dryer.
+- ThinQ can lag the meter. A dryer cycle opened less than **5 minutes** before
+  the washer's own start was the washer's opening burst, and is withdrawn
+  (`cancelled`).
 - The cycle is dated from the rise, not from the burst.
-- The dryer — the one machine stopped part-way, to take the load out — gets a
-  shorter grace period than the washer's ten minutes. Not the one minute that
-  would be ideal: measured dead times *inside* a cycle reach **234 s**, and
-  cutting at a minute would end the activity ten minutes early, then open a
-  second one when the drum resumed. Six minutes is the ceiling, and it
-  **tightens as the machine's rhythm is learned** — twice the longest dead time
-  ever recorded, never under two minutes. Learned as a max, never an average: a
-  mean would licence cutting the first time the machine breathes longer than
-  usual. The figure is visible as `temps_mort_max_s` on the running sensor.
-- **Known limit**: the washer's drum (142-215 W) and the freezer's compressor
-  draw alike, so no threshold separates them. Idling is therefore judged low,
-  and a compressor running when the laundry finishes delays "terminé" by up to
-  one compressor run. The countdown has reached zero by then, so nothing is
-  misstated — it is only late.
-- A second appliance joining is inferred from what the running one cannot do:
-  a washer past its heating never averages 1 600 W over twenty minutes, and a
-  dryer's troughs never sit between 300 and 800 W. While both run, each one's
-  progress rests on its learned duration rather than on the meter.
+- It closes after **six minutes** of silence — not one: measured dead times
+  inside a cycle reach 234-300 s. That delay **tightens as the machine's rhythm
+  is learned**: twice the longest dead time ever recorded, never under two
+  minutes. Learned as a max, never an average. Visible as `temps_mort_max_s`
+  on the running sensor.
+- **Both machines at once.** A dryer already running keeps its cycle when the
+  washer starts, but the meter never goes quiet then: the dryer is kept alive
+  by its heating alone and closes **13 minutes** after its last heat (it
+  reheats every 8.2). A dryer started *while* the washer runs is not seen.
+- **Known limit**: the dryer's tumbling and the freezer's compressor draw
+  alike. A compressor running when the drying finishes delays "terminé" by up
+  to one compressor run.
 
 ### Dishwasher stages
 
@@ -118,16 +134,15 @@ Four on one recorded cycle, two on another, and the opening burst counts as one
 despite alternating with the pump every minute.
 
 The expected total is learned like the durations, and left off the display
-until it is known rather than invented. A washing machine gets none of this: on
-a shared meter its stages cannot honestly be read.
+until it is known rather than invented.
 
 ### Learned durations
 
 The expected length starts at the nominal and is blended with the median of
 what has actually been observed, in proportion to how many cycles have been
 seen (full weight after eight). A cycle more than 2.5× from the known median is
-recorded as rejected rather than learned — that is almost always two appliances
-counted as one.
+recorded as rejected rather than learned. The washer learns nothing: it
+announces its own length.
 
 ## Install
 
@@ -138,7 +153,13 @@ it at:
 - the **whole-house consumption** sensor;
 - every **already-metered** appliance, to be subtracted;
 - **intermittent meters** (a car charger reports nothing while unplugged);
-- the **laundry meter**.
+- the **laundry meter**;
+- the washer's ThinQ **current status** sensor. Its remaining-time and total-time
+  sensors are found on the same device.
+
+Upgrading from 0.4: open *Options* once and pick the washer's status sensor —
+until then the dryer is not detected. The dryer's learned rhythm is carried
+over; the old *Buanderie* device and its entities can be deleted.
 
 A metered sensor that drops to `unavailable` **suspends** the residual rather
 than counting 0 W: a missing reading would inflate it by exactly what that
@@ -151,7 +172,8 @@ dishwasher's band.
 The integration does not send them; it provides what they need — discrete
 transitions and a credible remaining time. Trigger on
 `binary_sensor.*_en_marche`, **never** on a power sensor: iOS throttles
-frequent updates and will drop the activity.
+frequent updates and will drop the activity. Every machine is named from the
+first push, so one activity per cycle is enough.
 
 ```yaml
 action: notify.mobile_app_<device>
