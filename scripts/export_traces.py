@@ -6,11 +6,13 @@ so the test suite replays what the appliances actually drew. This script pulls
 the windows listed in ``WINDOWS`` from the recorder and writes one JSON file
 per window into ``tests/fixtures/``.
 
-Three kinds of trace:
+Four kinds of trace:
 
 * ``garage`` — a single measured sensor (washer + dryer share that Shelly);
 * ``laundry`` — the same meter, plus what LG ThinQ said about the washer
   (status, predicted end, programme length) over the window;
+* ``grid`` — the grid meter, signed: negative is export, plus the solar
+  forecast and the Tempo price over the window. What a solar start is judged on;
 * ``residual`` — the *unmeasured* house load, i.e. total consumption minus every
   measured appliance. That is where the dishwasher hides, next to the oven.
 
@@ -33,6 +35,16 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures"
 
 GARAGE = "sensor.shellyproem50_a0dd6ca07f48_em1_power"
+GRID = "sensor.shellyproem50_34987a450cf4_em0_power"
+# Raw states next to the grid: the panels' own meter, Forecast.Solar, and
+# the Tempo price in force.
+SOLAR_CONTEXT = {
+    "pv_w": "sensor.shellyproem50_34987a450cf4_em1_power",
+    "forecast_now_w": "sensor.power_production_now",
+    "forecast_next_hour_kwh": "sensor.energy_next_hour",
+    "forecast_peak_at": "sensor.power_highest_peak_time_today",
+    "price_eur_kwh": "sensor.tempo_prix_actuel",
+}
 # The washer since 3 Oct 2026, an LG on ThinQ: raw states, not watts.
 WASHER = {
     "status": "sensor.lave_linge_current_status",
@@ -87,6 +99,11 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
      "lave-linge LG, 86 min annoncées — ThinQ branché en cours de cycle"),
     ("thinq_dryer_sat_1846", "laundry", "2026-10-03T18:40", "2026-10-03T20:30",
      "sèche-linge, juste après le lave-linge"),
+    # --- the grid, for the washer's solar start ---------------------------
+    ("grid_sat_1000", "grid", "2026-10-03T10:00", "2026-10-03T19:00",
+     "réseau, journée d'octobre : export maxi ~680 W de 14:10 à 16:50"),
+    ("grid_wed_0923", "grid", "2026-09-23T09:00", "2026-09-23T19:00",
+     "réseau, beau jour de septembre : export jusqu'à ~2,1 kW, PV ~2,3 kW"),
     # --- garage noise: 15 min around 180 W, must not start a cycle --------
     ("garage_blip_wed_0745", "garage", "2026-09-16T07:35", "2026-09-16T08:10",
      "parasite 180 W / 12 min"),
@@ -182,9 +199,10 @@ def main() -> None:
             continue
         start = datetime.fromisoformat(start_s).replace(tzinfo=TZ)
         end = datetime.fromisoformat(end_s).replace(tzinfo=TZ)
-        entities = [TOTAL, *MEASURED] if kind == "residual" else [GARAGE]
+        meter = GRID if kind == "grid" else GARAGE
+        entities = [TOTAL, *MEASURED] if kind == "residual" else [meter]
         series = fetch(url, token, entities, start, end)
-        points = residual_trace(series) if kind == "residual" else series.get(GARAGE, [])
+        points = residual_trace(series) if kind == "residual" else series.get(meter, [])
         payload: dict = {
             "name": name,
             "kind": kind,
@@ -193,6 +211,10 @@ def main() -> None:
             "end": end.isoformat(),
             "points": [[stamp.isoformat(), round(value, 1)] for stamp, value in points],
         }
+        if kind == "grid":
+            states = fetch_states(url, token, list(SOLAR_CONTEXT.values()), start, end)
+            payload["context"] = {key: states.get(entity, [])
+                                  for key, entity in SOLAR_CONTEXT.items()}
         if kind == "laundry":
             states = fetch_states(url, token, list(WASHER.values()), start, end)
             payload["washer"] = {key: states.get(entity, [])

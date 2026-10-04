@@ -22,10 +22,18 @@
   "options": {
     "step": {
       "init": {
-        "title": "Lave-linge et seuils de détection",
+        "title": "Lave-linge, départ au soleil et seuils de détection",
         "description": "Valeurs mesurées sur l'installation : le lave-vaisselle monte de 1 940 à 2 015 W au-dessus de la base, le four de 2 150 à 2 230 W. La bande doit contenir le premier et exclure le second.",
         "data": {
           "washer_status_entity": "Capteur d'état du lave-linge (LG ThinQ)",
+          "grid_entity": "Compteur réseau (négatif = export)",
+          "solar_entity": "Production solaire (compteur des panneaux)",
+          "price_entity": "Prix du kWh en cours (Tempo)",
+          "forecast_now_entity": "Prévision solaire : puissance maintenant",
+          "forecast_next_hour_entity": "Prévision solaire : énergie l'heure suivante",
+          "forecast_peak_entity": "Prévision solaire : heure du pic du jour",
+          "solar_good_saving_pct": "Économie visée (chauffe couverte)",
+          "solar_min_saving_pct": "Économie minimale, faute de mieux",
           "step_min_w": "Échelon minimal du lave-vaisselle",
           "step_max_w": "Échelon maximal du lave-vaisselle",
           "dishwasher_nominal_minutes": "Durée attendue d'un cycle de lave-vaisselle",
@@ -34,7 +42,11 @@
         },
         "data_description": {
           "dryer_off_delay_minutes": "Silence sous le seuil de veille avant de clore le cycle. Mesuré : jusqu'à 300 s de silence en plein cycle, donc en dessous de 6 min l'activité risque d'être coupée puis relancée.",
-          "washer_status_entity": "Le « Current status » de la machine. Le temps restant et la durée du programme sont lus sur le même appareil. Quand le lave-linge ne tourne pas, ce que voit le compteur de la buanderie est le sèche-linge."
+          "washer_status_entity": "Le « Current status » de la machine. Le temps restant et la durée du programme sont lus sur le même appareil. Quand le lave-linge ne tourne pas, ce que voit le compteur de la buanderie est le sèche-linge.",
+          "grid_entity": "Sans lui, le lave-linge ne démarre jamais seul. Mis en mode « départ à distance », il démarre quand un cycle lancé maintenant coûterait au moins l'économie demandée de moins que le même cycle pris entièrement sur le réseau.",
+          "solar_min_saving_pct": "Acceptée seulement si la production est instable ou si le pic prévu est passé depuis une heure. À 50 %, il faut tenir environ 400 W d'export pendant une demi-heure.",
+          "solar_entity": "Sert à juger la production stable ou non. Sans lui, elle est réputée instable et l'économie minimale suffit.",
+          "solar_good_saving_pct": "Démarre dès qu'elle est atteinte. 90 % : la chauffe est couverte par le soleil."
         }
       }
     }
@@ -43,6 +55,9 @@
     "binary_sensor": {
       "en_marche": {
         "name": "En marche"
+      },
+      "attente_soleil": {
+        "name": "En attente du soleil"
       }
     },
     "button": {
@@ -121,6 +136,11 @@
       },
       "fin_prevue": {
         "name": "Fin prévue"
+      }
+    },
+    "switch": {
+      "depart_solaire": {
+        "name": "Départ au soleil"
       }
     }
   }

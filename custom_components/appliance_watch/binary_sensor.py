@@ -1,6 +1,7 @@
-"""One binary sensor per watcher: is a cycle running?
+"""One binary sensor per watcher — is a cycle running? — and the washer's
+"waiting for the sun".
 
-This is the entity the Live Activity automations trigger on — a discrete
+The running ones are what the Live Activity automations trigger on — a discrete
 transition, never the power sensor itself, which changes several times a minute
 and would have iOS throttle the activity away.
 """
@@ -15,7 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, WATCHERS
+from .const import DOMAIN, WASHER, WATCHERS
 from .coordinator import ApplianceCoordinator
 from .entity import ApplianceEntity
 from .logic.detector import Phase
@@ -24,8 +25,10 @@ from .logic.detector import Phase
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     coordinator: ApplianceCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(RunningBinarySensor(coordinator, watcher)
-                       for watcher in WATCHERS)
+    entities: list[BinarySensorEntity] = [RunningBinarySensor(coordinator, watcher)
+                                          for watcher in WATCHERS]
+    entities.append(WaitingForSunBinarySensor(coordinator))
+    async_add_entities(entities)
 
 
 class RunningBinarySensor(ApplianceEntity, BinarySensorEntity):
@@ -51,4 +54,39 @@ class RunningBinarySensor(ApplianceEntity, BinarySensorEntity):
                 for name, fingerprint in state.fingerprints.items()
                 if fingerprint.longest_pause_s
             },
+        }
+
+
+class WaitingForSunBinarySensor(ApplianceEntity, BinarySensorEntity):
+    """The washer is armed for remote start and waits for the sun.
+
+    Its attributes say why it has not started yet: the surplus the house has
+    held, and what a cycle started now would save.
+    """
+
+    _attr_icon = "mdi:weather-sunny-alert"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, WASHER, "attente_soleil")
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.solar.configured
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.solar.decision.waiting
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        decision = self.coordinator.solar.decision
+        estimate = decision.estimate
+        return {
+            "economie_requise_pct": (round(decision.required * 100)
+                                     if decision.required is not None else None),
+            "raison": decision.reason or None,
+            "surplus_tenu_w": round(estimate.surplus_w) if estimate else None,
+            "economie_estimee_pct": round(estimate.saving * 100) if estimate else None,
+            "cout_estime_eur": estimate.cost_eur if estimate else None,
+            "cout_reseau_eur": estimate.grid_cost_eur if estimate else None,
         }

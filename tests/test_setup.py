@@ -15,12 +15,19 @@ from datetime import timedelta  # noqa: E402
 from homeassistant.helpers import device_registry as dr  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
 from homeassistant.util import dt as dt_util  # noqa: E402
-from pytest_homeassistant_custom_component.common import MockConfigEntry  # noqa: E402
+from pytest_homeassistant_custom_component.common import (  # noqa: E402
+    MockConfigEntry,
+    async_fire_time_changed,
+    async_mock_service,
+)
 
 from custom_components.appliance_watch.const import (  # noqa: E402
+    CONF_FORECAST_PEAK,
+    CONF_GRID,
     CONF_LAUNDRY_METER,
     CONF_MEASURED,
     CONF_OPTIONAL,
+    CONF_SOLAR,
     CONF_TOTAL,
     CONF_WASHER_STATUS,
     DOMAIN,
@@ -33,6 +40,11 @@ LAUNDRY = "sensor.garage"
 WASHER_STATUS = "sensor.lave_linge_current_status"
 WASHER_REMAINING = "sensor.lave_linge_remaining_time"
 WASHER_TOTAL = "sensor.lave_linge_total_time"
+WASHER_REMOTE = "binary_sensor.lave_linge_remote_start"
+WASHER_OPERATION = "select.lave_linge_operation"
+GRID = "sensor.reseau"
+SOLAR = "sensor.panneaux"
+PEAK = "sensor.pic_solaire"
 
 DATA = {
     CONF_TOTAL: TOTAL,
@@ -51,9 +63,10 @@ def thinq_washer(hass) -> None:
         config_entry_id=thinq.entry_id, identifiers={("lg_thinq", "washer")})
     registry = er.async_get(hass)
     for key, entity in (("current_state", WASHER_STATUS), ("remain", WASHER_REMAINING),
-                        ("total", WASHER_TOTAL)):
+                        ("total", WASHER_TOTAL), ("remote_control_enabled", WASHER_REMOTE),
+                        ("operation_mode", WASHER_OPERATION)):
         registry.async_get_or_create(
-            "sensor", "lg_thinq", f"washer_{key}", config_entry=thinq,
+            entity.split(".")[0], "lg_thinq", f"washer_{key}", config_entry=thinq,
             device_id=device.id, translation_key=key,
             suggested_object_id=entity.split(".")[1])
 
@@ -253,3 +266,76 @@ async def test_the_entity_ids_the_live_activities_rely_on(hass):
                 f"sensor.{watcher}_last_cycle_duration"} <= created
     assert {"sensor.lave_vaisselle_stage", "sensor.lave_vaisselle_heating_phases",
             "sensor.lave_linge_stage"} <= created
+
+
+# --------------------------------------------------------------------------
+# Solar start — the washer armed for remote start, the sun doing the rest
+# --------------------------------------------------------------------------
+
+async def armed_in_the_sun(hass, freezer, *, export_w: float, minutes: int = 31,
+                           armed: str = "on", extra: dict | None = None):
+    """Set up with the washer armed, then let the grid export for a while."""
+    thinq_washer(hass)
+    washer(hass, "initial")
+    hass.states.async_set(WASHER_REMOTE, armed)
+    power(hass, LAUNDRY, 2)
+    power(hass, GRID, -export_w)
+    start = async_mock_service(hass, "select", "select_option")
+    entry = await setup_entry(hass, DATA | {CONF_GRID: GRID} | (extra or {}))
+    for _ in range(minutes * 2):
+        freezer.tick(timedelta(seconds=30))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    return entry, start
+
+
+async def test_the_sun_starts_the_armed_washer(hass, freezer):
+    entry, start = await armed_in_the_sun(hass, freezer, export_w=1500)
+    assert [call.data for call in start] == [
+        {"entity_id": WASHER_OPERATION, "option": "start"}]
+    waiting = hass.states.get(entity_id(hass, entry, "lave_linge_attente_soleil"))
+    assert waiting.attributes["economie_estimee_pct"] >= 50
+
+
+async def test_steady_sun_before_the_peak_holds_out_for_the_heating(hass, freezer):
+    """Half the cycle from the sun is on offer, but better is coming."""
+    power(hass, SOLAR, 1500)
+    hass.states.async_set(PEAK, (dt_util.utcnow() + timedelta(hours=3)).isoformat())
+    entry, start = await armed_in_the_sun(
+        hass, freezer, export_w=700, extra={CONF_SOLAR: SOLAR, CONF_FORECAST_PEAK: PEAK})
+    assert start == []
+    waiting = hass.states.get(entity_id(hass, entry, "lave_linge_attente_soleil"))
+    assert waiting.attributes["economie_estimee_pct"] >= 50
+    assert waiting.attributes["economie_requise_pct"] == 90
+
+
+async def test_a_thin_surplus_keeps_it_waiting(hass, freezer):
+    entry, start = await armed_in_the_sun(hass, freezer, export_w=150)
+    assert start == []
+    assert state_of(hass, entry, "lave_linge_attente_soleil") == "on"
+
+
+async def test_a_washer_not_armed_is_never_started(hass, freezer):
+    _, start = await armed_in_the_sun(hass, freezer, export_w=1500, armed="off")
+    assert start == []
+
+
+async def test_the_switch_holds_it_back(hass, freezer):
+    entry, start = await armed_in_the_sun(hass, freezer, export_w=1500, minutes=1)
+    await hass.services.async_call(
+        "switch", "turn_off",
+        {"entity_id": entity_id(hass, entry, "lave_linge_depart_solaire")}, blocking=True)
+    for _ in range(62):
+        freezer.tick(timedelta(seconds=30))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert start == []
+    assert state_of(hass, entry, "lave_linge_attente_soleil") == "off"
+
+
+async def test_without_a_grid_meter_there_is_no_solar_start(hass):
+    thinq_washer(hass)
+    washer(hass, "initial")
+    power(hass, LAUNDRY, 2)
+    entry = await setup_entry(hass)
+    assert state_of(hass, entry, "lave_linge_attente_soleil") == "unavailable"

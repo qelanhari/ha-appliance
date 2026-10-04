@@ -57,14 +57,19 @@ from .logic.detector import (
 from .logic.fingerprints import Fingerprint, as_dict, expected_duration, from_dict, record
 from .logic.residual import Reading, residual_watts, to_watts
 from .logic.washer import WasherFollower, WasherReading
+from .solar import WasherSolarStart
 
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_CYCLE = f"{DOMAIN}_cycle"
-# Translation keys of the ThinQ sensors found next to the washer's status.
+# Translation keys of the ThinQ entities found next to the washer's status.
 THINQ_REMAINING = "remain"
 THINQ_TOTAL = "total"
+THINQ_REMOTE = "remote_control_enabled"
+THINQ_OPERATION = "operation_mode"
 UNAVAILABLE = ("unknown", "unavailable", "")
+# Store key of the solar-start switch, next to the watchers'.
+SOLAR_ENABLED = "solar_start_enabled"
 
 
 @dataclass
@@ -121,11 +126,13 @@ class WatcherState:
 
 @dataclass(frozen=True)
 class WasherEntities:
-    """The ThinQ sensors the washer is read from."""
+    """The ThinQ entities the washer is read from — and started through."""
 
     status: str | None = None
     remaining: str | None = None
     total: str | None = None
+    remote: str | None = None
+    operation: str | None = None
 
 
 class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
@@ -141,6 +148,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self._dryer = DryerDetector(self._dryer_config())
         self._washer = WasherFollower(WASHER)
         self._washer_entities = WasherEntities()
+        self.solar = WasherSolarStart(hass, entry, self._state)
         self.states: dict[str, WatcherState] = {
             watcher: WatcherState(appliance=watcher)
             for watcher in (DISHWASHER, WASHER, DRYER)
@@ -159,13 +167,17 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         """Load what was learned, then start listening."""
         await self._load_state()
         self._washer_entities = self._find_washer_entities()
+        self.solar.remote = self._washer_entities.remote
+        self.solar.operation = self._washer_entities.operation
         sources = [*self._measured_entities(required=True),
                    *self._measured_entities(required=False),
                    entry_value(self.entry, CONF_TOTAL),
                    entry_value(self.entry, CONF_LAUNDRY_METER),
                    self._washer_entities.status,
                    self._washer_entities.remaining,
-                   self._washer_entities.total]
+                   self._washer_entities.total,
+                   # Arming is worth an immediate look, not the next tick.
+                   self._washer_entities.remote]
         watched = [entity for entity in sources if entity]
         self._unsubscribe.append(
             async_track_state_change_event(self.hass, watched, self._on_reading))
@@ -193,7 +205,9 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
                     if entity.platform == found.platform}
         return WasherEntities(status=status,
                               remaining=siblings.get(THINQ_REMAINING),
-                              total=siblings.get(THINQ_TOTAL))
+                              total=siblings.get(THINQ_TOTAL),
+                              remote=siblings.get(THINQ_REMOTE),
+                              operation=siblings.get(THINQ_OPERATION))
 
     # ------------------------------------------------------------ settings
 
@@ -291,10 +305,13 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
     async def _process(self, now: datetime, *, tick: bool = False) -> None:
         transitions = self._dishwasher_events(now, tick)
         # The washer first: whether it runs is what the dryer is judged by.
-        transitions += self._laundry_events(now, tick)
+        reading = self._washer_reading()
+        transitions += self._laundry_events(now, tick, reading)
         for watcher, transition in transitions:
             await self._apply(watcher, transition)
         self._update_live_values()
+        await self.solar.process(now, washer_running=self._washer.running,
+                                 total=reading.total)
 
     def _dishwasher_events(self, now: datetime,
                            tick: bool) -> list[tuple[str, Transition]]:
@@ -305,10 +322,10 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
                   else self._dishwasher.feed(now, self.residual_w))
         return [(DISHWASHER, event) for event in events]
 
-    def _laundry_events(self, now: datetime,
-                        tick: bool) -> list[tuple[str, Transition]]:
+    def _laundry_events(self, now: datetime, tick: bool,
+                        reading: WasherReading) -> list[tuple[str, Transition]]:
         out: list[tuple[str, Transition]] = []
-        for event in self._washer.update(now, self._washer_reading()):
+        for event in self._washer.update(now, reading):
             out.append((WASHER, event))
             if event.kind == "started" and event.started_at is not None:
                 out += [(DRYER, cancelled) for cancelled
@@ -424,6 +441,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             state.finished_at = _parse_utc(saved.get("finished_at"))
             state.fingerprints = {name: from_dict(value) for name, value
                                   in (saved.get("fingerprints") or {}).items()}
+        self.solar.enabled = bool(data.get(SOLAR_ENABLED, True))
         self._apply_learned_rhythm()
         # A cycle in flight is deliberately *not* restored: the meter-read
         # detectors have no trace behind them after a restart. The washer needs
@@ -431,7 +449,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
 
     async def _save_state(self) -> None:
         await self._store.async_save({
-            watcher: {
+            SOLAR_ENABLED: self.solar.enabled,
+            **{watcher: {
                 "total_energy_wh": round(state.total_energy_wh, 1),
                 "last_duration": state.last_duration,
                 "last_energy": state.last_energy,
@@ -439,8 +458,14 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
                 "fingerprints": {name: as_dict(value)
                                  for name, value in state.fingerprints.items()},
             }
-            for watcher, state in self.states.items()
+            for watcher, state in self.states.items()},
         })
+
+    async def async_set_solar_start(self, enabled: bool) -> None:
+        """The switch: let the sun start the washer, or not."""
+        self.solar.enabled = enabled
+        await self._save_state()
+        self.async_set_updated_data(self.states)
 
     async def async_forget_fingerprints(self) -> None:
         """Drop everything learned — the equivalent of dhwp's pattern reset."""

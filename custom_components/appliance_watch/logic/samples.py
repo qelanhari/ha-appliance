@@ -42,6 +42,10 @@ class Trace:
         return list(self._samples)
 
     @property
+    def first(self) -> Sample | None:
+        return self._samples[0] if self._samples else None
+
+    @property
     def last(self) -> Sample | None:
         return self._samples[-1] if self._samples else None
 

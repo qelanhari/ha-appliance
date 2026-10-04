@@ -29,6 +29,17 @@ CONF_LAUNDRY_METER: Final = "laundry_meter_entity"
 # siblings are found on the same device.
 CONF_WASHER_STATUS: Final = "washer_status_entity"
 
+# Solar start of the washer, once armed for remote start. The grid meter is
+# signed (negative is export); without it the feature stays off.
+CONF_GRID: Final = "grid_entity"
+CONF_SOLAR: Final = "solar_entity"
+CONF_FORECAST_PEAK: Final = "forecast_peak_entity"
+CONF_GOOD_SAVING: Final = "solar_good_saving_pct"
+CONF_PRICE: Final = "price_entity"
+CONF_FORECAST_NOW: Final = "forecast_now_entity"
+CONF_FORECAST_NEXT_HOUR: Final = "forecast_next_hour_entity"
+CONF_MIN_SAVING: Final = "solar_min_saving_pct"
+
 # Detection knobs surfaced in the Options flow. Their defaults live in the
 # logic dataclasses; see README.md for the traces they were measured from.
 CONF_STEP_MIN: Final = "step_min_w"

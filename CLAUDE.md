@@ -36,12 +36,22 @@ dryer cycle opens on it. Do not bring back a power rule to tell the two apart:
 a hot wash draws what the dryer draws, which is how a washer was named
 "sèche-linge" on 19 Sept 2026.
 
+## Starting a machine is an action, not a guess
+
+`logic/solar_start.py` presses start on a real appliance. Every input must be
+*known* — remote-start flag, washer status, an observed window of grid
+readings — and a missing one means "do not start", never "assume it is fine".
+Its thresholds are judged on what the sun **then actually gave**
+(`realised_saving` in `tests/test_solar_start.py`), not on the estimate:
+that is how a 15-minute window was shown to start into clouds.
+
 ## What survives a restart, and what must not
 
 Persisted in `Store(hass, 1, f"{DOMAIN}.{entry_id}")`:
 
 - learned fingerprints (durations, energies, rejected count);
-- cumulative energy per watcher, last cycle duration/energy, last finish time.
+- cumulative energy per watcher, last cycle duration/energy, last finish time;
+- the solar-start switch.
 
 **Deliberately not persisted: a cycle in flight.** After a restart the meter-read
 detectors have no trace behind them, so they can neither confirm nor end a

@@ -33,6 +33,8 @@ Three devices, *Lave-vaisselle*, *Lave-linge* and *Sèche-linge*, each with:
 | `sensor.*_cycles_appris` | dishwasher and dryer: cycles learned from |
 | `sensor.lave_vaisselle_conso_non_mesuree` | the residual itself — the number to look at when a cycle is missed or invented |
 | `button.seche_linge_oublier_empreintes` | throw away what was learned |
+| `switch.lave_linge_depart_solaire` | let the sun start the washer once it is armed — on by default |
+| `binary_sensor.lave_linge_attente_soleil` | armed and waiting; attributes give the surplus held, the saving a start now would make, the bar it is held to and why |
 
 Entity *ids* follow the Home Assistant UI language — an English instance gets
 `binary_sensor.lave_linge_running` for the row above. The unique ids, and the
@@ -125,6 +127,53 @@ Nothing is inferred. A ThinQ status of `detecting`, `running`, `rinsing`,
   alike. A compressor running when the drying finishes delays "terminé" by up
   to one compressor run.
 
+### Washer — started by the sun
+
+Load the machine, choose the programme, press **remote start**: from there
+Home Assistant decides *when*, and presses start through ThinQ's operation
+select. Two bars, both against the same cycle taken entirely from the grid
+(nothing is sold back, so the saving is the share the sun covers):
+
+- **90 % — the heating covered**: start, whatever the outlook. On a clear day
+  the panels give up to 3 kW and the heating draws 2.1.
+- **50 % — failing better**: only when nothing better is to be expected —
+  production **unsteady** (panels' 20th-80th percentile spread over half an
+  hour above 30 % of their median; steady mornings measure 0.07-0.28, a
+  cloudy afternoon 1.08), or the day's **forecast peak an hour behind**.
+
+The share is estimated minute by minute:
+
+- **what the washer draws** — the 3 Oct cycle, measured: two heatings in the
+  first twelve minutes (39 Wh at 1.5 kW, 158 Wh at 2.1 kW), then ~90 W of
+  tumbling. 317 Wh, 197 of them up front. A longer programme stretches the
+  tumbling, never the heating;
+- **what the house can give it** — the export *held* 80 % of the last half
+  hour on the grid meter, not its average;
+- **whether it lasts** — Forecast.Solar's next hour; a drop counts against
+  the end of the cycle, a rise is not counted on.
+
+The Tempo price only puts euros on it.
+
+Replayed on twelve days (22 Sept - 4 Oct) against what the sun then actually
+gave:
+
+| rule | starts | real saving |
+|---|---|---|
+| 50 % on a 15-min window | 10 | five at 26-43 % — a cloud on its way looks like sunshine for a quarter of an hour |
+| 50 % on a 30-min window | 8 | 51-80 %, mean 0.61 |
+| **90 %, else 50 % if unsteady or past the peak** | 8 | 51-82 %, mean 0.68 |
+| perfect hindsight | — | 0.80-0.97 |
+
+Forecast.Solar is a weak guide here: its "now" lags the panels and its peak
+time moves by an hour or two through the day. That is why it only decides
+when the best is *behind*, never when it is ahead.
+
+Every input that permits a start has to be *known*: a remote-start flag or a
+washer status ThinQ cannot report is no permission to start a machine. An
+unknown steadiness or peak only lowers the bar to 50 % — still a sound start.
+A command the cloud drops is asked again five minutes later. Every start fires
+`appliance_watch_solar_start` with its reason.
+
 ### Dishwasher stages
 
 Its heating *is* the detection signal, so the stage can be stated rather than
@@ -156,6 +205,11 @@ it at:
 - the **laundry meter**;
 - the washer's ThinQ **current status** sensor. Its remaining-time and total-time
   sensors are found on the same device.
+
+For the solar start, also in *Options*: the **grid meter** (signed, negative
+is export — without it the feature is off), the **panels' meter**, the
+**current price** sensor and three **Forecast.Solar** sensors (power now,
+energy next hour, peak time today).
 
 Upgrading from 0.4: open *Options* once and pick the washer's status sensor —
 until then the dryer is not detected. The dryer's learned rhythm is carried

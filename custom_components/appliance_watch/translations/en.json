@@ -22,10 +22,18 @@
   "options": {
     "step": {
       "init": {
-        "title": "Washer and detection thresholds",
+        "title": "Washer, solar start and detection thresholds",
         "description": "Measured on this installation: the dishwasher steps 1 940-2 015 W above the ambient base, the oven 2 150-2 230 W. The band must hold the first and exclude the second.",
         "data": {
           "washer_status_entity": "Washer status sensor (LG ThinQ)",
+          "grid_entity": "Grid meter (negative = export)",
+          "solar_entity": "Solar production (panel meter)",
+          "price_entity": "Current kWh price (Tempo)",
+          "forecast_now_entity": "Solar forecast: power now",
+          "forecast_next_hour_entity": "Solar forecast: energy next hour",
+          "forecast_peak_entity": "Solar forecast: today's peak time",
+          "solar_good_saving_pct": "Target saving (heating covered)",
+          "solar_min_saving_pct": "Minimum saving, failing better",
           "step_min_w": "Minimum dishwasher step",
           "step_max_w": "Maximum dishwasher step",
           "dishwasher_nominal_minutes": "Expected dishwasher cycle length",
@@ -34,7 +42,11 @@
         },
         "data_description": {
           "dryer_off_delay_minutes": "Silence below the idle threshold before closing the cycle. Measured: mid-cycle silences up to 300 s, so under 6 min the activity risks being cut and restarted.",
-          "washer_status_entity": "The machine's “Current status”. Its remaining time and programme length are read from the same device. While the washer is idle, whatever the laundry meter sees is the dryer."
+          "washer_status_entity": "The machine's “Current status”. Its remaining time and programme length are read from the same device. While the washer is idle, whatever the laundry meter sees is the dryer.",
+          "grid_entity": "Without it the washer never starts on its own. Armed for remote start, it starts when a cycle started now would cost at least the required saving less than the same cycle taken entirely from the grid.",
+          "solar_min_saving_pct": "Accepted only when production is unsteady or the forecast peak is an hour behind. At 50 %, about 400 W of export held for half an hour.",
+          "solar_entity": "Used to judge whether production is steady. Without it, production is deemed unsteady and the minimum saving is enough.",
+          "solar_good_saving_pct": "Starts as soon as it is reached. 90 %: the heating is covered by the sun."
         }
       }
     }
@@ -43,6 +55,9 @@
     "binary_sensor": {
       "en_marche": {
         "name": "Running"
+      },
+      "attente_soleil": {
+        "name": "Waiting for the sun"
       }
     },
     "button": {
@@ -121,6 +136,11 @@
       },
       "fin_prevue": {
         "name": "Expected end"
+      }
+    },
+    "switch": {
+      "depart_solaire": {
+        "name": "Solar start"
       }
     }
   }
