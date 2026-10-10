@@ -67,6 +67,8 @@ THINQ_REMAINING = "remain"
 THINQ_TOTAL = "total"
 THINQ_REMOTE = "remote_control_enabled"
 THINQ_OPERATION = "operation_mode"
+# Armed for remote start, the washer dozes off: woken before it is started.
+THINQ_ASLEEP = "sleep"
 UNAVAILABLE = ("unknown", "unavailable", "")
 # Store key of the solar-start switch, next to the watchers'.
 SOLAR_ENABLED = "solar_start_enabled"
@@ -311,6 +313,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
             await self._apply(watcher, transition)
         self._update_live_values()
         await self.solar.process(now, washer_running=self._washer.running,
+                                 asleep=reading.status == THINQ_ASLEEP,
                                  total=reading.total)
 
     def _dishwasher_events(self, now: datetime,

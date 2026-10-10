@@ -171,7 +171,10 @@ when the best is *behind*, never when it is ahead.
 Every input that permits a start has to be *known*: a remote-start flag or a
 washer status ThinQ cannot report is no permission to start a machine. An
 unknown steadiness or peak only lowers the bar to 50 % — still a sound start.
-A command the cloud drops is asked again five minutes later. Every start fires
+A command the cloud drops is asked again five minutes later.
+Armed, the machine falls asleep after about twelve minutes and would not take
+"start": when the sun is there and ThinQ reports `sleep`, it is sent `wake_up`
+first, and started as soon as it reports itself awake. Every start fires
 `appliance_watch_solar_start` with its reason.
 
 ### Dishwasher stages

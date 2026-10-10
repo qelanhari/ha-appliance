@@ -297,6 +297,24 @@ async def test_the_sun_starts_the_armed_washer(hass, freezer):
     assert waiting.attributes["economie_estimee_pct"] >= 50
 
 
+async def test_the_sleeping_washer_is_woken_then_started(hass, freezer):
+    thinq_washer(hass)
+    washer(hass, "sleep")
+    hass.states.async_set(WASHER_REMOTE, "on")
+    power(hass, LAUNDRY, 2)
+    power(hass, GRID, -1500)
+    start = async_mock_service(hass, "select", "select_option")
+    await setup_entry(hass, DATA | {CONF_GRID: GRID})
+    for _ in range(62):
+        freezer.tick(timedelta(seconds=30))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert [call.data["option"] for call in start] == ["wake_up"]
+    washer(hass, "initial")
+    await hass.async_block_till_done()
+    assert [call.data["option"] for call in start] == ["wake_up", "start"]
+
+
 async def test_steady_sun_before_the_peak_holds_out_for_the_heating(hass, freezer):
     """Half the cycle from the sun is on offer, but better is coming."""
     power(hass, SOLAR, 1500)

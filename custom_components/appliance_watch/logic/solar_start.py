@@ -20,7 +20,7 @@ Pure module: no Home Assistant import, no I/O.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from .samples import Trace
@@ -63,6 +63,7 @@ class SolarStartConfig:
     window: timedelta = timedelta(minutes=30)
     held_quantile: float = 0.2
     # A command the cloud swallowed is asked again — but not every reading.
+    # The same goes for waking the machine up.
     retry_after: timedelta = timedelta(minutes=5)
 
 
@@ -97,6 +98,9 @@ class Decision:
     waiting: bool
     estimate: Estimate | None
     start: bool = False
+    # Armed, the machine falls asleep after ~12 min and must be woken before
+    # it takes "start". Start follows once ThinQ reports it awake.
+    wake: bool = False
     # The bar this moment is held to, and why.
     required: float | None = None
     reason: str = ""
@@ -151,6 +155,7 @@ class SolarStarter:
         self._trace = Trace(keep=self.config.window + timedelta(minutes=1))
         self._pv = Trace(keep=self.config.window + timedelta(minutes=1))
         self._asked_at: datetime | None = None
+        self._woken_at: datetime | None = None
 
     def feed_grid(self, at: datetime, watts: float) -> None:
         """One grid reading, signed: negative is export."""
@@ -207,7 +212,7 @@ class SolarStarter:
 
     def decide(self, at: datetime, *, armed: bool | None,
                washer_running: bool | None, enabled: bool,
-               total: timedelta | None = None, price: float | None = None,
+               asleep: bool = False, total: timedelta | None = None, price: float | None = None,
                forecast: Forecast | None = None,
                peak_at: datetime | None = None) -> Decision:
         """Whether to start now — True once per attempt.
@@ -216,7 +221,7 @@ class SolarStarter:
         status that ThinQ cannot report is no permission to start a machine.
         """
         if not (enabled and armed is True and washer_running is False):
-            self._asked_at = None
+            self._asked_at = self._woken_at = None
             return Decision(waiting=False, estimate=None)
         surplus = self.held_export_w(at)
         if surplus is None:
@@ -225,13 +230,22 @@ class SolarStarter:
         required, reason = self._required(at, peak_at)
         if result.saving >= self.config.good_saving:
             required, reason = self.config.good_saving, "chauffe couverte"
-        recently = (self._asked_at is not None
-                    and at - self._asked_at < self.config.retry_after)
-        start = result.saving >= required and not recently
-        if start:
-            self._asked_at = at
-        return Decision(waiting=True, estimate=result, start=start,
-                        required=required, reason=reason)
+        decision = Decision(waiting=True, estimate=result,
+                            required=required, reason=reason)
+        if result.saving < required:
+            return decision
+        if asleep:
+            if self._recent(self._woken_at, at):
+                return decision
+            self._woken_at = at
+            return replace(decision, wake=True)
+        if self._recent(self._asked_at, at):
+            return decision
+        self._asked_at = at
+        return replace(decision, start=True)
+
+    def _recent(self, asked_at: datetime | None, at: datetime) -> bool:
+        return asked_at is not None and at - asked_at < self.config.retry_after
 
 
 __all__ = [

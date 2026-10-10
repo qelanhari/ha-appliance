@@ -287,3 +287,36 @@ def test_the_estimate_is_reported_while_waiting():
     assert round(estimate_now.surplus_w) == 1500
     assert estimate_now.cost_eur < estimate_now.grid_cost_eur
 
+
+
+def _ask_asleep(starter: SolarStarter, at: datetime):
+    return starter.decide(at, armed=True, washer_running=False, enabled=True,
+                          asleep=True, price=0.1612)
+
+
+def test_an_armed_washer_asleep_is_woken_not_started():
+    """Armed, it dozes off after ~12 min (10 Oct 2026): start alone would not take."""
+    starter = SolarStarter()
+    decision = _ask_asleep(starter, _exporting(starter, 31))
+    assert decision.wake and not decision.start
+
+
+def test_it_is_woken_once_then_again_only_after_a_while():
+    starter = SolarStarter()
+    at = _exporting(starter, 31)
+    assert _ask_asleep(starter, at).wake
+    assert not _ask_asleep(starter, at + timedelta(minutes=1)).wake
+    assert _ask_asleep(starter, at + timedelta(minutes=5)).wake
+
+
+def test_once_awake_it_starts_without_waiting():
+    starter = SolarStarter()
+    at = _exporting(starter, 31)
+    _ask_asleep(starter, at)
+    assert _ask(starter, at + timedelta(seconds=20)).start
+
+
+def test_a_thin_surplus_does_not_wake_it():
+    starter = SolarStarter()
+    decision = _ask_asleep(starter, _exporting(starter, 31, watts=-150.0))
+    assert not decision.wake

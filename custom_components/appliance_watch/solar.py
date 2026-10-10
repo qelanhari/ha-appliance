@@ -1,7 +1,8 @@
 """Home Assistant side of the washer's solar start: inputs in, one command out.
 
 The decision is :mod:`logic.solar_start`'s; this reads the grid meter, the
-price (for the euros shown) and the forecast, and presses "start" through ThinQ's operation select.
+price (for the euros shown) and the forecast, and presses "start" — after
+"wake up" if the machine dozed off — through ThinQ's operation select.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 
 EVENT_SOLAR_START = f"{DOMAIN}_solar_start"
 START_OPTION = "start"
+WAKE_OPTION = "wake_up"
 
 # Reads one entity's state as a float, or None when it has nothing to say.
 Reader = Callable[[str | None], Any]
@@ -97,8 +99,8 @@ class WasherSolarStart:
         return Forecast(now_w=now_w, next_hour_w=next_kwh * 1000)
 
     async def process(self, now: datetime, *, washer_running: bool | None,
-                      total: timedelta | None) -> None:
-        """Feed the grid reading, decide, and press start if it is time."""
+                      asleep: bool, total: timedelta | None) -> None:
+        """Feed the grid reading, decide, and wake or start if it is time."""
         if not self.configured:
             return
         grid = self._watts(CONF_GRID)
@@ -109,21 +111,26 @@ class WasherSolarStart:
             self._starter.feed_pv(now, pv)
         self.decision = self._starter.decide(
             now, armed=self._armed(), washer_running=washer_running,
-            enabled=self.enabled, total=total, price=self._float(CONF_PRICE),
+            enabled=self.enabled, asleep=asleep, total=total, price=self._float(CONF_PRICE),
             forecast=self._forecast(), peak_at=self._peak_at())
-        if self.decision.start:
-            await self._press_start()
+        if self.decision.wake:
+            await self._press(WAKE_OPTION)
+        elif self.decision.start and await self._press(START_OPTION):
+            self._announce_start()
 
-    async def _press_start(self) -> None:
-        estimate = self.decision.estimate
+    async def _press(self, option: str) -> bool:
         try:
             await self.hass.services.async_call(
                 "select", "select_option",
-                {"entity_id": self.operation, "option": START_OPTION}, blocking=True)
+                {"entity_id": self.operation, "option": option}, blocking=True)
         except HomeAssistantError as err:
             # Asked again after retry_after: the cloud may simply have dropped it.
-            _LOGGER.warning("Démarrage solaire du lave-linge refusé : %s", err)
-            return
+            _LOGGER.warning("Lave-linge : commande « %s » refusée : %s", option, err)
+            return False
+        return True
+
+    def _announce_start(self) -> None:
+        estimate = self.decision.estimate
         _LOGGER.info("Lave-linge démarré au soleil — %s (%s)",
                      self.decision.reason, estimate)
         self.hass.bus.async_fire(EVENT_SOLAR_START, {
