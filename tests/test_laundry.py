@@ -155,6 +155,38 @@ def test_the_expected_length_follows_the_machine_s_revisions():
 
 
 # --------------------------------------------------------------------------
+# 14 Oct: a 189-minute wash whose end ThinQ put 8 minutes away while weighing
+# --------------------------------------------------------------------------
+
+def test_an_end_sooner_than_the_programme_allows_is_not_the_end():
+    """From 14:01:38 to 14:08:55 ThinQ ended a 189-minute wash at 14:09:38.
+
+    Followed, the countdown hit 0:00 at 14:09 and the phone's activity stayed
+    there while the drum turned for three more hours. The stale end of the
+    programme ThinQ woke on (86 min) is just as wrong. Until the plan agrees
+    with its own length, the length is the answer — from 14:00:34.33, when
+    189 arrived, 11 ms after the status.
+    """
+    washer = WasherFollower()
+    expected = []
+    length_known = datetime.fromisoformat("2026-10-14T14:00:34.329915+02:00")
+    for at, _, reading in timeline("thinq_washer_wed_1400"):
+        washer.update(at, reading)
+        if washer.expected and at >= length_known:
+            expected.append(washer.expected.total_seconds() / 60)
+    assert min(expected) > 185
+
+
+def test_the_corrected_plan_is_followed_again():
+    """At 14:09:55 ThinQ said 17:08:55: 189 minutes from 11:59:55 UTC."""
+    washer = WasherFollower()
+    for at, _, reading in timeline("thinq_washer_wed_1400"):
+        washer.update(at, reading)
+    assert washer.expected == datetime.fromisoformat("2026-10-14T15:08:55+00:00") \
+        - washer.cycle.started_at
+
+
+# --------------------------------------------------------------------------
 # 3 Oct, straight after: the dryer, three minutes after the washer's "end"
 # --------------------------------------------------------------------------
 

@@ -33,6 +33,11 @@ STAGES: dict[str, str] = {
     "error": "erreur",
 }
 
+# How much sooner than its own programme's length ThinQ may end a cycle.
+# Re-estimates move the end by minutes (82 to 86 min on 3 Oct); while weighing
+# the load it ended a 189-minute wash 9 minutes in (14 Oct).
+PLAN_SLACK = timedelta(minutes=30)
+
 
 @dataclass(frozen=True)
 class WasherReading:
@@ -80,12 +85,19 @@ class WasherFollower:
 
     @property
     def expected(self) -> timedelta | None:
-        """Total length of the cycle in flight, as the machine now predicts it."""
+        """Total length of the cycle in flight, as the machine now predicts it.
+
+        An end that would cut the programme short by more than ``PLAN_SLACK``
+        is not a plan: the programme's length answers until the two agree.
+        """
         if self._cycle is None:
             return None
-        if self._ends_at is not None:
-            return max(self._ends_at - self._cycle.started_at, timedelta())
-        return self._total
+        if self._ends_at is None:
+            return self._total
+        planned = max(self._ends_at - self._cycle.started_at, timedelta())
+        if self._total is not None and planned < self._total - PLAN_SLACK:
+            return self._total
+        return planned
 
     def update(self, at: datetime, reading: WasherReading) -> list[Transition]:
         """Take the latest ThinQ state; return the cycle it opened or closed."""

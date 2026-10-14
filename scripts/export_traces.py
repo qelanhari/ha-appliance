@@ -99,6 +99,10 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
      "lave-linge LG, 86 min annoncées — ThinQ branché en cours de cycle"),
     ("thinq_dryer_sat_1846", "laundry", "2026-10-03T18:40", "2026-10-03T20:30",
      "sèche-linge, juste après le lave-linge"),
+    # 189 min announced, yet at 14:01:38 ThinQ put the end at 14:09:38 — the
+    # load sensing's own countdown — before 17:08:55 at 14:09:55.
+    ("thinq_washer_wed_1400", "laundry", "2026-10-14T13:55", "2026-10-14T14:30",
+     "lave-linge LG, 189 min annoncées — fin à 8 min pendant la pesée"),
     # --- the grid, for the washer's solar start ---------------------------
     ("grid_sat_1000", "grid", "2026-10-03T10:00", "2026-10-03T19:00",
      "réseau, journée d'octobre : export maxi ~680 W de 14:10 à 16:50"),
