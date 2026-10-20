@@ -42,6 +42,10 @@ from .logic.detector import DryerConfig, PlateauConfig
 from .logic.solar_start import SolarStartConfig
 
 POWER_SENSOR = selector.EntitySelectorConfig(domain="sensor", device_class="power")
+MEASURED = selector.EntitySelector(selector.EntitySelectorConfig(
+    domain="sensor", device_class="power", multiple=True))
+OPTIONAL = selector.EntitySelector(selector.EntitySelectorConfig(
+    domain="sensor", multiple=True))
 ANY_SENSOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 # Its remaining-time and total-time siblings are found on the same device.
 WASHER_STATUS = selector.EntitySelector(selector.EntitySelectorConfig(
@@ -51,11 +55,8 @@ WASHER_STATUS = selector.EntitySelector(selector.EntitySelectorConfig(
 def _install_schema() -> vol.Schema:
     return vol.Schema({
         vol.Required(CONF_TOTAL): selector.EntitySelector(POWER_SENSOR),
-        vol.Required(CONF_MEASURED): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor", device_class="power",
-                                          multiple=True)),
-        vol.Optional(CONF_OPTIONAL, default=[]): selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="sensor", multiple=True)),
+        vol.Required(CONF_MEASURED): MEASURED,
+        vol.Optional(CONF_OPTIONAL, default=[]): OPTIONAL,
         vol.Required(CONF_LAUNDRY_METER): selector.EntitySelector(POWER_SENSOR),
         vol.Required(CONF_WASHER_STATUS): WASHER_STATUS,
     })
@@ -93,10 +94,11 @@ class ApplianceWatchConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ApplianceWatchOptionsFlow(OptionsFlow):
-    """The washer's sensor and the detection thresholds.
+    """The metered loads, the washer's sensor and the detection thresholds.
 
     ``self.config_entry`` is injected by Home Assistant. The washer's sensor is
-    here too, because an entry installed before 0.5 has none to start with.
+    here too, because an entry installed before 0.5 has none to start with; the
+    metered loads, because a new metered appliance must be subtracted too.
     """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None
@@ -107,6 +109,10 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
         entry = self.config_entry
         plateau, dryer, solar = PlateauConfig(), DryerConfig(), SolarStartConfig()
         schema = vol.Schema({
+            vol.Required(CONF_MEASURED, default=entry_value(
+                entry, CONF_MEASURED, [])): MEASURED,
+            vol.Optional(CONF_OPTIONAL, default=entry_value(
+                entry, CONF_OPTIONAL, [])): OPTIONAL,
             vol.Required(CONF_WASHER_STATUS, description={
                 "suggested_value": entry_value(entry, CONF_WASHER_STATUS)}): WASHER_STATUS,
             **_optional_entity(entry, CONF_GRID, selector.EntitySelector(POWER_SENSOR)),

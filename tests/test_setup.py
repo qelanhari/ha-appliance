@@ -236,6 +236,30 @@ async def test_an_absent_optional_meter_is_simply_zero(hass):
     assert float(residual.state) == pytest.approx(1400.0)
 
 
+async def test_a_load_metered_later_is_subtracted_once_added_in_options(hass):
+    """A newly metered appliance is added in Options, not by reinstalling."""
+    second_pump = "sensor.pompe_2"
+    power(hass, TOTAL, 2000)
+    power(hass, POOL, 500)
+    power(hass, second_pump, 300)
+    power(hass, LAUNDRY, 100)
+    hass.states.async_set(CHARGER, "unavailable")
+    entry = await setup_entry(hass)
+
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    defaults = {key.schema: key.default() for key in flow["data_schema"].schema
+                if callable(getattr(key, "default", None))}
+    assert defaults[CONF_MEASURED] == [POOL]
+    result = await hass.config_entries.options.async_configure(flow["flow_id"], {
+        CONF_MEASURED: [POOL, second_pump], CONF_OPTIONAL: [CHARGER],
+        CONF_WASHER_STATUS: WASHER_STATUS})
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+
+    residual = hass.states.get(entity_id(hass, entry, "conso_non_mesuree"))
+    assert float(residual.state) == pytest.approx(1100.0)  # 2000 - 500 - 300 - 100
+
+
 async def test_unloading_releases_the_subscriptions(hass):
     power(hass, TOTAL, 1200)
     power(hass, POOL, 500)

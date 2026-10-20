@@ -209,6 +209,9 @@ it at:
 - the washer's ThinQ **current status** sensor. Its remaining-time and total-time
   sensors are found on the same device.
 
+The metered and intermittent lists can be edited later in *Options*: a newly
+metered appliance left out would be read as dishwasher.
+
 For the solar start, also in *Options*: the **grid meter** (signed, negative
 is export — without it the feature is off), the **panels' meter**, the
 **current price** sensor and three **Forecast.Solar** sensors (power now,
