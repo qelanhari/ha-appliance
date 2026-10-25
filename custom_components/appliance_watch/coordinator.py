@@ -323,15 +323,22 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         for watcher, transition in transitions:
             await self._apply(watcher, transition)
         self._update_live_values()
+        # The armed washer outranks the pump: it may count on what the pump
+        # borrowed above v1, which the router takes back on the next tick.
         await self.solar.process(now, washer_running=self._washer.running,
                                  asleep=reading.status == THINQ_ASLEEP,
-                                 total=reading.total)
-        await self.router.process(now, self._running_appliances())
+                                 total=reading.total,
+                                 yield_w=self.router.pool_yield_w)
+        await self.router.process(now, self._running_appliances(now))
 
-    def _running_appliances(self) -> list[RunningAppliance]:
+    def _running_appliances(self, now: datetime) -> list[RunningAppliance]:
         """Cycles a human started: surplus the router must not promise away."""
-        return [RunningAppliance(name=watcher, mean_draw_w=mean_draw_w(
-                    state.fingerprints.get(state.appliance)))
+        return [RunningAppliance(
+                    name=watcher,
+                    mean_draw_w=mean_draw_w(state.fingerprints.get(state.appliance)),
+                    elapsed_min=((now - state.started_at).total_seconds() / 60
+                                 if state.started_at else None),
+                    remaining_min=state.remaining)
                 for watcher, state in self.states.items()
                 if state.phase is Phase.RUNNING]
 

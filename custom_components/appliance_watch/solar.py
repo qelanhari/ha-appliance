@@ -99,13 +99,18 @@ class WasherSolarStart:
         return Forecast(now_w=now_w, next_hour_w=next_kwh * 1000)
 
     async def process(self, now: datetime, *, washer_running: bool | None,
-                      asleep: bool, total: timedelta | None) -> None:
-        """Feed the grid reading, decide, and wake or start if it is time."""
+                      asleep: bool, total: timedelta | None,
+                      yield_w: float = 0.0) -> None:
+        """Feed the grid reading, decide, and wake or start if it is time.
+
+        ``yield_w`` is what the pool pump would give back by dropping to v1:
+        surplus the washer outranks it for.
+        """
         if not self.configured:
             return
         grid = self._watts(CONF_GRID)
         if grid is not None:
-            self._starter.feed_grid(now, grid)
+            self._starter.feed_grid(now, grid - yield_w)
         pv = self._watts(CONF_SOLAR)
         if pv is not None:
             self._starter.feed_pv(now, pv)

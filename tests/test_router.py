@@ -8,7 +8,6 @@ that cannot be walked back.
 
 import sys
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -16,15 +15,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
-from logic.router import (  # noqa: E402
+from logic.router import (
     DEFAULT_APPLIANCE_DRAW_W,
     Allocation,
     RunningAppliance,
     appliance_reserve_w,
+    pool_yield_w,
+    remaining_mean_w,
     route,
     summary,
 )
-
+from logic.solar_start import WASHER_PROFILE
 
 # The module default is the 800 W nameplate; production injects the measured
 # 650 W draw, and every figure below is read against that.
@@ -168,6 +169,90 @@ def test_an_unlearned_appliance_falls_back_to_a_nominal_draw():
 
 def test_nothing_running_reserves_nothing():
     assert appliance_reserve_w([]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Where the cycle stands: what is left of it, not what it was
+# ---------------------------------------------------------------------------
+
+
+def test_a_washer_just_started_reserves_its_whole_cycle_mean():
+    """317 Wh over 86 min: the heating weighs on the average, not 500 W."""
+    washer = RunningAppliance("lave_linge", elapsed_min=0.0)
+    assert washer.reserve_w == pytest.approx(317.6 * 60 / 84.8, rel=0.01)
+
+
+def test_a_washer_past_its_heating_reserves_only_the_tumbling():
+    washer = RunningAppliance("lave_linge", elapsed_min=15.0)
+    assert washer.reserve_w == pytest.approx(92.0)
+
+
+def test_the_profile_is_read_minute_by_minute():
+    assert remaining_mean_w(WASHER_PROFILE, 1000.0) is None
+
+
+def test_the_reserve_fades_over_the_last_minutes():
+    dishwasher = RunningAppliance("lave_vaisselle", 850.0, remaining_min=5.0)
+    assert dishwasher.reserve_w == pytest.approx(425.0)
+
+
+@pytest.mark.parametrize("left", [None, 0.0, -3.0, 30.0])
+def test_unknown_late_or_distant_ends_keep_the_whole_reserve(left):
+    assert RunningAppliance("lave_vaisselle", 850.0, remaining_min=left).reserve_w == 850.0
+
+
+def test_a_cycle_about_to_end_no_longer_blocks_the_heater(
+    base_inputs, router_thr, pool_inputs, pool_thr
+):
+    grid = -1100.0
+    water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
+                    energy_needed_kwh=2.0)
+    ending = [RunningAppliance("lave_vaisselle", 850.0, remaining_min=2.0)]
+    allocation = allocate(grid, water, router_thr, pool_inputs, pool_thr, ending)
+    assert allocation.water.signal_switch_on is True
+
+
+# ---------------------------------------------------------------------------
+# The pump borrows above v1; the heater outranks it
+# ---------------------------------------------------------------------------
+
+
+def test_a_pump_at_v2_no_longer_keeps_the_heater_off(
+    base_inputs, router_thr, pool_inputs, pool_thr
+):
+    """700 W of export with the pump at v2 is 1 040 W the heater may count on."""
+    grid = -700.0
+    water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
+                    energy_needed_kwh=2.0)
+    pool = replace(pool_inputs, pump_speed=2, water_temp_c=26.0)
+    allocation = allocate(grid, water, router_thr, pool, pool_thr)
+
+    assert allocation.water.signal_switch_on is True
+    # Still exporting with both running: the pump keeps v2 within its hysteresis.
+    assert allocation.grid_for_pool_w == pytest.approx(-50.0)
+    assert allocation.pool.target_speed <= 2
+
+
+def test_when_the_heater_needs_them_the_pump_hands_them_back(
+    base_inputs, router_thr, pool_inputs, pool_thr
+):
+    grid = -600.0
+    water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
+                    energy_needed_kwh=2.0)
+    pool = replace(pool_inputs, pump_speed=2, water_temp_c=26.0)
+    allocation = allocate(grid, water, router_thr, pool, pool_thr)
+
+    assert allocation.water.signal_switch_on is True
+    assert allocation.pool.target_speed == 1
+
+
+def test_a_speed_set_by_hand_is_not_borrowed(pool_inputs):
+    assert pool_yield_w(replace(pool_inputs, pump_speed=3, mode="v3")) == 0.0
+
+
+@pytest.mark.parametrize(("speed", "watts"), [(0, 0.0), (1, 0.0), (2, 340.0), (3, 940.0)])
+def test_the_pump_yields_its_draw_above_v1(pool_inputs, speed, watts):
+    assert pool_yield_w(replace(pool_inputs, pump_speed=speed)) == pytest.approx(watts)
 
 
 # ---------------------------------------------------------------------------

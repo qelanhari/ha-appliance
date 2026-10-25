@@ -12,6 +12,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from datetime import timedelta
 
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -25,6 +26,8 @@ from test_setup import (
     entity_id,
     power,
     setup_entry,
+    thinq_washer,
+    washer,
 )
 
 from custom_components.appliance_watch.const import (
@@ -201,3 +204,47 @@ async def test_the_water_heater_habits_are_taken_from_dhwp_smart(hass, hass_stor
 
     learned = hass.states.get(entity_id(hass, entry, "routeur_chauffe_eau_jours_appris"))
     assert learned.state == "159"
+
+
+async def test_the_pump_makes_way_at_once_when_the_heater_starts(hass, noon):
+    """Its 5-minute dwell is for clouds, not for a load that just arrived."""
+    sunny_noon(hass, export_w=600)
+    hass.states.async_set(SPEED, "2")
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    router.memory.pool.last_speed_change_at = dt_util.utcnow()
+    await run(hass, noon, minutes=1)
+
+    assert [call.data["value"] for call in set_value
+            if call.data["entity_id"] == SPEED] == [1.0]
+
+
+async def test_the_borrowed_watts_are_offered_only_while_driving(hass, noon):
+    sunny_noon(hass, export_w=300)
+    hass.states.async_set(SPEED, "2")
+    await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await run(hass, noon, minutes=1)
+    observing = router.pool_yield_w
+    await drive(hass, entry)
+    await run(hass, noon, minutes=1)
+
+    assert (observing, router.pool_yield_w) == (0.0, 340.0)
+
+
+async def test_the_armed_washer_counts_on_what_the_pump_borrowed(hass, noon):
+    thinq_washer(hass)
+    washer(hass, "initial")
+    sunny_noon(hass, export_w=300)
+    hass.states.async_set(SPEED, "2")
+    await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    await drive(hass, entry)
+    await run(hass, noon, minutes=31)
+
+    held = coordinator.solar._starter.held_export_w(dt_util.utcnow())
+    assert held == pytest.approx(300.0 + 340.0)

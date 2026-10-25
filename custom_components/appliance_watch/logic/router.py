@@ -12,8 +12,9 @@ figure that already accounts for what the ones above it have taken:
     water heater   sees the real smoothed grid
     pool           sees it *plus* whatever the water heater just claimed
 
-and the order of that list is the priority. Nothing else is needed to make the
-two cooperate.
+and the order of that list is the priority. For that order to hold, the pump's
+draw above its baseline is handed back to the heater: it is surplus the pump
+borrowed and steps down from, not consumption the heater must work around.
 
 The second thing it does is subtract what humans have already started. A cycle
 detected by :mod:`..logic.detector` is a load nobody controls, and its heating
@@ -29,6 +30,7 @@ from dataclasses import dataclass, replace
 
 from .loads import pool as pool_load
 from .loads import water_heater as water_load
+from .solar_start import WASHER_PROFILE
 
 # Fallback average draw per appliance, used until enough cycles have been
 # watched to know better. A dishwasher cycle measured here came to ~885 Wh over
@@ -41,6 +43,26 @@ DEFAULT_APPLIANCE_DRAW_W: dict[str, float] = {
     "buanderie": 800.0,
 }
 FALLBACK_APPLIANCE_DRAW_W: float = 800.0
+# Over its last minutes a cycle can barely overlap a two-hour hold: the reserve
+# fades out over this span. Ten minutes at 850 W is ~140 Wh, two cents at a
+# blue peak-hour rate, against a heater start delayed until the machine stops.
+TAPER_MINUTES: float = 10.0
+# Profiles measured minute by minute, where the mean would mislead. The
+# washer's heating is 197 of its 317 Wh, all in the first twelve minutes.
+PROFILES: dict[str, tuple[tuple[float, float], ...]] = {"lave_linge": WASHER_PROFILE}
+
+
+def remaining_mean_w(profile: tuple[tuple[float, float], ...],
+                     elapsed_min: float) -> float | None:
+    """Energy still to come over time still to run, from a measured profile."""
+    energy_wh = minutes = 0.0
+    clock = 0.0
+    for length, watts in profile:
+        left = max(0.0, min(length, clock + length - elapsed_min))
+        energy_wh += watts * left / 60
+        minutes += left
+        clock += length
+    return energy_wh * 60 / minutes if minutes > 0 else None
 
 
 @dataclass(frozen=True)
@@ -51,12 +73,29 @@ class RunningAppliance:
     # Measured mean draw over a whole cycle: energy / duration, from the
     # learned fingerprint. None until a cycle has been watched end to end.
     mean_draw_w: float | None = None
+    # Where the cycle stands. Unknown, or past its expected end, keeps the
+    # whole reserve: a late cycle is still running.
+    elapsed_min: float | None = None
+    remaining_min: float | None = None
 
     @property
-    def reserve_w(self) -> float:
+    def base_w(self) -> float:
+        """What the rest of the cycle draws on average."""
+        profile = PROFILES.get(self.name)
+        if profile is not None and self.elapsed_min is not None:
+            rest = remaining_mean_w(profile, self.elapsed_min)
+            if rest is not None:
+                return rest
         if self.mean_draw_w is not None and self.mean_draw_w > 0:
             return self.mean_draw_w
         return DEFAULT_APPLIANCE_DRAW_W.get(self.name, FALLBACK_APPLIANCE_DRAW_W)
+
+    @property
+    def reserve_w(self) -> float:
+        left = self.remaining_min
+        if left is None or left <= 0 or left >= TAPER_MINUTES:
+            return self.base_w
+        return self.base_w * left / TAPER_MINUTES
 
 
 @dataclass(frozen=True)
@@ -69,11 +108,26 @@ class Allocation:
     appliance_reserve_w: float
     grid_for_pool_w: float
     claimed_by_water_w: float
+    # The pump's draw above v1 in automatic mode, counted as surplus for the
+    # heater (and the armed washer): the pump yields it.
+    pool_yield_w: float = 0.0
 
 
 def appliance_reserve_w(running: list[RunningAppliance]) -> float:
     """Watts to keep out of reach of an irreversible decision."""
     return sum(appliance.reserve_w for appliance in running)
+
+
+def pool_yield_w(pool_inputs: pool_load.Inputs) -> float:
+    """What the pump would give back by dropping to v1.
+
+    Only in automatic mode: a speed chosen by hand is the user's, and winter
+    already runs on the sun alone at v1 at most.
+    """
+    if pool_inputs.mode != pool_load.MODE_AUTO:
+        return 0.0
+    speed = pool_load._safe_speed(pool_inputs.pump_speed)
+    return max(0.0, pool_load.PUMP_W[speed] - pool_load.PUMP_W[1])
 
 
 def route(
@@ -100,11 +154,15 @@ def route(
     """
     running = running or []
     reserve = appliance_reserve_w(running)
+    yielded = pool_yield_w(pool_inputs)
 
     # A reserve makes the grid look *less* favourable: it is surplus already
-    # spoken for. Only for the start decision.
+    # spoken for. Only for the start decision. The pump's borrowed watts make
+    # it look *more* favourable: they are the heater's by priority.
     already_engaged = water_inputs.signal_currently_on
-    water_grid = grid_smooth_w if already_engaged else grid_smooth_w + reserve
+    water_grid = grid_smooth_w - yielded
+    if not already_engaged:
+        water_grid += reserve
     water = water_load.decide(
         replace(water_inputs, grid_smooth_w=water_grid), water_thr
     )
@@ -125,6 +183,7 @@ def route(
         appliance_reserve_w=reserve,
         grid_for_pool_w=pool_grid,
         claimed_by_water_w=claimed,
+        pool_yield_w=yielded,
     )
 
 
@@ -143,6 +202,8 @@ __all__ = [
     "Allocation",
     "RunningAppliance",
     "appliance_reserve_w",
+    "pool_yield_w",
+    "remaining_mean_w",
     "route",
     "summary",
 ]

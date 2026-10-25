@@ -72,6 +72,7 @@ def _pool_attributes(router: SolarRouter) -> dict[str, Any]:
         "saison": allocation.pool.season,
         "relais_alimente": snapshot.pool_powered,
         "reseau_vu_w": round(allocation.grid_for_pool_w),
+        "cede_au_chauffe_eau_w": round(allocation.pool_yield_w),
         "pilotage": router.memory.piloting,
     }
 
@@ -106,6 +107,7 @@ ROUTER_SENSORS: tuple[RouterSensorDescription, ...] = (
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.WATT,
         value=lambda r: _allocation(r, "appliance_reserve_w"),
+        attributes=lambda r: {"cycles": sorted(r.running_reserves)},
     ),
     RouterSensorDescription(
         key="chauffe_eau_jours_appris",

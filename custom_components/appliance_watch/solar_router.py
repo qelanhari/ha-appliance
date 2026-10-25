@@ -106,11 +106,23 @@ class SolarRouter:
         self.memory = RouterMemory()
         self.allocation: Allocation | None = None
         self.snapshot: Snapshot | None = None
+        self._running: set[str] = set()
+        # "name: watts" per cycle reserved on the last tick, for display.
+        self.running_reserves: list[str] = []
 
     # ------------------------------------------------------------ settings
 
     def _entity(self, key: str) -> str | None:
         return entry_value(self.entry, key) or None
+
+    @property
+    def pool_yield_w(self) -> float:
+        """Watts the pump would hand back now, only if the router drives it."""
+        if not self.memory.piloting or self.allocation is None:
+            return 0.0
+        if self.snapshot is not None and not self.snapshot.pool_powered:
+            return 0.0
+        return self.allocation.pool_yield_w
 
     @property
     def configured(self) -> bool:
@@ -210,10 +222,16 @@ class SolarRouter:
         self.allocation = route(smoothed, water, self.water_thresholds(),
                                 pool, self.pool_thresholds(), running)
         self.memory.pool.season = self.allocation.pool.season
+        # A load that just appeared — the heater's claim, a cycle someone
+        # started — is surplus the pump must hand back now, not in 5 minutes.
+        self.running_reserves = [f"{item.name}: {item.reserve_w:.0f} W" for item in running]
+        started = {item.name for item in running}
+        make_way = self.allocation.claimed_by_water_w > 0 or bool(started - self._running)
+        self._running = started
         if self.memory.piloting:
             await self._drive_water(now, water, self.allocation.water)
             if powered:
-                await self._drive_pool(now, pool, self.allocation.pool)
+                await self._drive_pool(now, pool, self.allocation.pool, make_way=make_way)
         self._save()
 
     def _water_inputs(self, local: datetime, grid_raw: float,
@@ -317,12 +335,15 @@ class SolarRouter:
                          {"entity_id": self._entity(CONF_BOOST), "value": desired}, reason)
 
     async def _drive_pool(self, now: datetime, inputs: pool_load.Inputs,
-                          decision: pool_load.Decision) -> None:
+                          decision: pool_load.Decision, *, make_way: bool) -> None:
         memory = self.memory.pool
         if decision.target_speed == inputs.pump_speed:
             return
         # Leaving v3 is never delayed: it burns 1.1 kW on the grid otherwise.
-        sovereign = memory.mode in pool_load.MANUAL_TO_SPEED or decision.leave_v3
+        # Neither is stepping down for a load that just started.
+        stepping_down = decision.target_speed < inputs.pump_speed
+        sovereign = (memory.mode in pool_load.MANUAL_TO_SPEED or decision.leave_v3
+                     or (make_way and stepping_down))
         if not sovereign and not dwell_elapsed(memory.last_speed_change_at, now, PUMP_DWELL_S):
             return
         if await self._call("number", "set_value",

@@ -184,7 +184,14 @@ the same grid meter and claimed the same surplus. One smoothed grid
 (τ ≈ 2.2 min), handed down in priority order: the water heater sees the real
 meter, the pump sees it plus what the heater just claimed. Cycles a human
 started (dishwasher, washer, dryer) reserve their learned mean draw, but only
-against starting the heater, whose contactor commits two hours.
+against starting the heater, whose contactor commits two hours. The reserve
+follows where the cycle stands: the washer's measured profile (2.1 kW of
+heating in its first twelve minutes, then 90 W), and a fade over the last ten
+minutes of any cycle, so the heater can start as a machine finishes.
+
+The pump only borrows the surplus above v1: in automatic mode that share is
+counted as available for the heater and for the armed washer, and the pump
+steps down at once, without its 5-minute dwell, when a load starts.
 
 - **Water heater**: the `dhwp_smart` brain (v0.8.0) with the router's rules:
   Tempo Rouge peak never starts a cycle; at the night checkpoints, below 42 °C
