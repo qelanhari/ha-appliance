@@ -5,11 +5,12 @@ from __future__ import annotations
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DISHWASHER, DOMAIN, DRYER, WASHER
+from .const import DISHWASHER, DOMAIN, DRYER, ROUTER, WASHER
 from .coordinator import ApplianceCoordinator, WatcherState
 
-DEVICE_NAMES = {DISHWASHER: "Lave-vaisselle", WASHER: "Lave-linge", DRYER: "Sèche-linge"}
-MODELS = {WASHER: "Suivi par LG ThinQ"}
+DEVICE_NAMES = {DISHWASHER: "Lave-vaisselle", WASHER: "Lave-linge", DRYER: "Sèche-linge",
+                ROUTER: "Routeur solaire"}
+MODELS = {WASHER: "Suivi par LG ThinQ", ROUTER: "Chauffe-eau et pompe piscine"}
 
 
 class ApplianceEntity(CoordinatorEntity[ApplianceCoordinator]):

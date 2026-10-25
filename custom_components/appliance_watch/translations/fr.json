@@ -51,6 +51,37 @@
           "solar_entity": "Sert à juger la production stable ou non. Sans lui, elle est réputée instable et l'économie minimale suffit.",
           "solar_good_saving_pct": "Démarre dès qu'elle est atteinte. 90 % : la chauffe est couverte par le soleil."
         }
+      },
+      "routeur": {
+        "title": "Routeur solaire",
+        "description": "Le surplus va d'abord au chauffe-eau, puis à la pompe piscine. Le routeur observe sans rien piloter tant que l'interrupteur « Pilotage » est éteint : coupez dhwp_smart et pool_pump avant de l'allumer.",
+        "data": {
+          "water_contactor_entity": "Chauffe-eau : contacteur (signal)",
+          "water_boost_entity": "Chauffe-eau : durée du boost (Cozytouch)",
+          "water_tank_top_entity": "Chauffe-eau : sonde haute",
+          "water_tank_middle_entity": "Chauffe-eau : sonde du milieu",
+          "water_heater_power_entity": "Chauffe-eau : puissance de la pompe à chaleur",
+          "water_heater_energy_entity": "Chauffe-eau : compteur d'énergie",
+          "water_garage_temp_entity": "Température du local du chauffe-eau",
+          "outdoor_temp_entity": "Température extérieure",
+          "tempo_color_entity": "Tempo : couleur du jour",
+          "tempo_next_color_entity": "Tempo : couleur de demain",
+          "tempo_hc_entity": "Tempo : heures creuses en cours",
+          "forecast_today_entity": "Prévision solaire : production du jour",
+          "forecast_tomorrow_entity": "Prévision solaire : production de demain",
+          "pool_speed_entity": "Piscine : vitesse de la pompe",
+          "pool_switch_entity": "Piscine : relais de la pompe",
+          "pool_water_temp_entity": "Piscine : température de l'eau",
+          "pool_air_temp_entity": "Piscine : température de l'air",
+          "water_heater_nominal_w": "Chauffe-eau : puissance réelle en chauffe",
+          "pool_water_warm_c": "Piscine : eau assez chaude pour les vitesses hautes"
+        },
+        "data_description": {
+          "water_contactor_entity": "Le contacteur engage le chauffe-eau pour deux heures au moins. Sans lui, ni contacteur ni pompe ne sont pilotés.",
+          "pool_speed_entity": "Sans elle, le routeur ne fonctionne pas : il répartit le surplus entre les deux charges.",
+          "pool_switch_entity": "Relais coupé, la pompe est hors tension volontairement : le routeur ne touche pas à sa vitesse.",
+          "water_heater_nominal_w": "Mesurée : environ 650 W, pas les 800 W de la plaque."
+        }
       }
     }
   },
@@ -139,11 +170,60 @@
       },
       "fin_prevue": {
         "name": "Fin prévue"
+      },
+      "chauffe_eau_decision": {
+        "name": "Décision chauffe-eau",
+        "state": {
+          "wait": "Attente",
+          "heat_solar": "Chauffe au soleil",
+          "heat_hc": "Chauffe en heures creuses",
+          "boost": "Boost",
+          "hard_floor": "Plancher de confort",
+          "hold_signal": "Maintien du contacteur"
+        }
+      },
+      "piscine_vitesse_cible": {
+        "name": "Vitesse piscine voulue"
+      },
+      "reseau_lisse": {
+        "name": "Réseau lissé"
+      },
+      "reserve_appareils": {
+        "name": "Réservé aux appareils"
+      },
+      "chauffe_eau_jours_appris": {
+        "name": "Jours d'habitudes appris"
       }
     },
     "switch": {
       "depart_solaire": {
         "name": "Départ au soleil"
+      },
+      "pilotage": {
+        "name": "Pilotage"
+      }
+    },
+    "select": {
+      "mode_chauffe_eau": {
+        "name": "Mode du chauffe-eau",
+        "state": {
+          "auto": "Automatique",
+          "off": "Arrêt",
+          "boost": "Boost",
+          "hc_only": "Heures creuses seulement",
+          "solar_only": "Soleil seulement"
+        }
+      },
+      "mode_piscine": {
+        "name": "Mode de la piscine",
+        "state": {
+          "auto": "Automatique",
+          "winter": "Hiver",
+          "off": "Arrêt",
+          "v1": "Vitesse 1",
+          "v2": "Vitesse 2",
+          "v3": "Vitesse 3"
+        }
       }
     }
   }

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,7 +12,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfPower, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -21,6 +26,7 @@ from .const import DISHWASHER, DOMAIN, DRYER, WASHER, WATCHERS
 from .coordinator import ApplianceCoordinator, WatcherState
 from .entity import ApplianceEntity
 from .logic.washer import STAGES
+from .router_entities import router_sensors
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -138,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         for watcher in description.watchers
     ]
     entities.append(ResidualSensor(coordinator))
+    entities += router_sensors(coordinator)
     async_add_entities(entities)
 
 

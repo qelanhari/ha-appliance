@@ -13,6 +13,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from datetime import timedelta  # noqa: E402
 
 from homeassistant.helpers import device_registry as dr  # noqa: E402
+from homeassistant.setup import async_setup_component  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
 from homeassistant.util import dt as dt_util  # noqa: E402
 from pytest_homeassistant_custom_component.common import (  # noqa: E402
@@ -78,6 +79,16 @@ def washer(hass, status: str, *, remaining_min: float | None = None,
         if remaining_min is not None else "unknown"
     hass.states.async_set(WASHER_REMAINING, ends)
     hass.states.async_set(WASHER_TOTAL, str(total_min) if total_min else "unknown")
+
+
+async def mock_select_option(hass):
+    """Mock ThinQ's select service after the select component is up.
+
+    Loading the component later (our own select platform does) would register
+    the real service over the mock.
+    """
+    assert await async_setup_component(hass, "select", {})
+    return async_mock_service(hass, "select", "select_option")
 
 
 def power(hass, entity_id, value, unit="W"):
@@ -253,6 +264,9 @@ async def test_a_load_metered_later_is_subtracted_once_added_in_options(hass):
     result = await hass.config_entries.options.async_configure(flow["flow_id"], {
         CONF_MEASURED: [POOL, second_pump], CONF_OPTIONAL: [CHARGER],
         CONF_WASHER_STATUS: WASHER_STATUS})
+    # Then the solar router's step, left empty: nothing driven.
+    assert result["step_id"] == "routeur"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
 
@@ -304,7 +318,7 @@ async def armed_in_the_sun(hass, freezer, *, export_w: float, minutes: int = 31,
     hass.states.async_set(WASHER_REMOTE, armed)
     power(hass, LAUNDRY, 2)
     power(hass, GRID, -export_w)
-    start = async_mock_service(hass, "select", "select_option")
+    start = await mock_select_option(hass)
     entry = await setup_entry(hass, DATA | {CONF_GRID: GRID} | (extra or {}))
     for _ in range(minutes * 2):
         freezer.tick(timedelta(seconds=30))
@@ -327,7 +341,7 @@ async def test_the_sleeping_washer_is_woken_then_started(hass, freezer):
     hass.states.async_set(WASHER_REMOTE, "on")
     power(hass, LAUNDRY, 2)
     power(hass, GRID, -1500)
-    start = async_mock_service(hass, "select", "select_option")
+    start = await mock_select_option(hass)
     await setup_entry(hass, DATA | {CONF_GRID: GRID})
     for _ in range(62):
         freezer.tick(timedelta(seconds=30))

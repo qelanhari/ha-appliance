@@ -40,6 +40,34 @@ CONF_FORECAST_NOW: Final = "forecast_now_entity"
 CONF_FORECAST_NEXT_HOUR: Final = "forecast_next_hour_entity"
 CONF_MIN_SAVING: Final = "solar_min_saving_pct"
 
+# Solar router: the water heater and the pool pump, routed on the same
+# smoothed grid (CONF_GRID, CONF_SOLAR above). Without the contactor or the
+# pump's speed, that load is left alone.
+ROUTER: Final = "routeur"
+CONF_CONTACTOR: Final = "water_contactor_entity"
+CONF_BOOST: Final = "water_boost_entity"
+CONF_TANK_TOP: Final = "water_tank_top_entity"
+CONF_TANK_MIDDLE: Final = "water_tank_middle_entity"
+CONF_HEATER_POWER: Final = "water_heater_power_entity"
+CONF_HEATER_ENERGY: Final = "water_heater_energy_entity"
+CONF_GARAGE_TEMP: Final = "water_garage_temp_entity"
+CONF_OUTDOOR_TEMP: Final = "outdoor_temp_entity"
+CONF_TEMPO_COLOR: Final = "tempo_color_entity"
+CONF_TEMPO_NEXT: Final = "tempo_next_color_entity"
+CONF_TEMPO_HC: Final = "tempo_hc_entity"
+CONF_FORECAST_TODAY: Final = "forecast_today_entity"
+CONF_FORECAST_TOMORROW: Final = "forecast_tomorrow_entity"
+CONF_POOL_SPEED: Final = "pool_speed_entity"
+CONF_POOL_WATER_TEMP: Final = "pool_water_temp_entity"
+CONF_POOL_AIR_TEMP: Final = "pool_air_temp_entity"
+CONF_HEATER_NOMINAL: Final = "water_heater_nominal_w"
+CONF_POOL_WARM: Final = "pool_water_warm_c"
+# The pump's own relay (Shelly 1PM Gen4). Off means unpowered on purpose:
+# the router then leaves the speed alone.
+CONF_POOL_SWITCH: Final = "pool_switch_entity"
+# Measured draw of the Atlantic heat pump, not its 800 W nameplate.
+DEFAULT_HEATER_NOMINAL_W: Final = 650.0
+
 # Detection knobs surfaced in the Options flow. Their defaults live in the
 # logic dataclasses; see README.md for the traces they were measured from.
 CONF_STEP_MIN: Final = "step_min_w"

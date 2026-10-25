@@ -54,10 +54,19 @@ from .logic.detector import (
     elapsed_ratio,
     remaining_minutes,
 )
-from .logic.fingerprints import Fingerprint, as_dict, expected_duration, from_dict, record
+from .logic.fingerprints import (
+    Fingerprint,
+    as_dict,
+    expected_duration,
+    from_dict,
+    record,
+)
 from .logic.residual import Reading, residual_watts, to_watts
+from .logic.router import RunningAppliance
+from .logic.router_state import mean_draw_w
 from .logic.washer import WasherFollower, WasherReading
 from .solar import WasherSolarStart
+from .solar_router import SolarRouter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,6 +160,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self._washer = WasherFollower(WASHER)
         self._washer_entities = WasherEntities()
         self.solar = WasherSolarStart(hass, entry, self._state)
+        self.router = SolarRouter(hass, entry, self._state)
         self.states: dict[str, WatcherState] = {
             watcher: WatcherState(appliance=watcher)
             for watcher in (DISHWASHER, WASHER, DRYER)
@@ -168,6 +178,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
     async def async_setup(self) -> None:
         """Load what was learned, then start listening."""
         await self._load_state()
+        await self.router.async_load()
         self._washer_entities = self._find_washer_entities()
         self.solar.remote = self._washer_entities.remote
         self.solar.operation = self._washer_entities.operation
@@ -315,6 +326,14 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         await self.solar.process(now, washer_running=self._washer.running,
                                  asleep=reading.status == THINQ_ASLEEP,
                                  total=reading.total)
+        await self.router.process(now, self._running_appliances())
+
+    def _running_appliances(self) -> list[RunningAppliance]:
+        """Cycles a human started: surplus the router must not promise away."""
+        return [RunningAppliance(name=watcher, mean_draw_w=mean_draw_w(
+                    state.fingerprints.get(state.appliance)))
+                for watcher, state in self.states.items()
+                if state.phase is Phase.RUNNING]
 
     def _dishwasher_events(self, now: datetime,
                            tick: bool) -> list[tuple[str, Transition]]:
@@ -515,4 +534,4 @@ def _parse_utc(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else None
 
 
-__all__ = ["ApplianceCoordinator", "EVENT_CYCLE", "WatcherState"]
+__all__ = ["EVENT_CYCLE", "ApplianceCoordinator", "WatcherState"]

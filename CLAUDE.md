@@ -87,3 +87,15 @@ HACS only sees GitHub **releases**, not tags:
 1. bump `manifest.json`
 2. `git commit` + `git tag vX.Y.Z`
 3. `gh release create vX.Y.Z --generate-notes`
+
+## Solar router
+
+`logic/router.py` allocates, `logic/loads/` holds the two ported brains
+(deviations marked `ROUTEUR:`), `logic/router_state.py` their memory and
+clocks; `solar_router.py` is the Home Assistant side. Its memory follows the
+**real** contactor and pump whoever moved them, so observing and driving
+share one state. It never acts while `memory.piloting` is false.
+
+The upstream repos `ha-water-heater` and `ha-pool` may still move: port their
+fixes into `logic/loads/` by three-way merge against the commit last ported
+(`ha-water-heater` 83d50a8, `ha-pool` unchanged since the port).

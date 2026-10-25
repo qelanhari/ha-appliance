@@ -177,6 +177,31 @@ Armed, the machine falls asleep after about twelve minutes and would not take
 first, and started as soon as it reports itself awake. Every start fires
 `appliance_watch_solar_start` with its reason.
 
+### Solar router — water heater, then pool pump
+
+Replaces the `dhwp_smart` and `pool_pump` integrations, which each smoothed
+the same grid meter and claimed the same surplus. One smoothed grid
+(τ ≈ 2.2 min), handed down in priority order: the water heater sees the real
+meter, the pump sees it plus what the heater just claimed. Cycles a human
+started (dishwasher, washer, dryer) reserve their learned mean draw, but only
+against starting the heater, whose contactor commits two hours.
+
+- **Water heater**: the `dhwp_smart` brain (v0.8.0) with the router's rules:
+  Tempo Rouge peak never starts a cycle; at the night checkpoints, below 42 °C
+  it heats whatever the sky, between 42 and 48 °C only if tomorrow's sun is
+  not guaranteed (or tomorrow is Rouge). Never heats on peak-hour grid.
+- **Pool pump**: the `pool_pump` brain; the season follows the water
+  temperature, the warmth gate reads the water only, and the pump's relay
+  (Shelly 1PM) off means the speed is left alone.
+- **Rainwater pumps** are not routed: they pump when the water is there.
+  They are ordinary consumption for the router.
+
+Configured in the second Options step. It **observes only** until the
+« Pilotage » switch is turned on: the « Décision chauffe-eau » and
+« Vitesse piscine voulue » sensors show what it would do, with the reason.
+Turn `dhwp_smart` and `pool_pump` off before turning it on. On first start
+it takes over the weekday hot-water habits `dhwp_smart` has learned.
+
 ### Dishwasher stages
 
 Its heating *is* the detection signal, so the stage can be stated rather than

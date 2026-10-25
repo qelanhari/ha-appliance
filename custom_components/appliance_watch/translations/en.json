@@ -51,6 +51,37 @@
           "solar_entity": "Used to judge whether production is steady. Without it, production is deemed unsteady and the minimum saving is enough.",
           "solar_good_saving_pct": "Starts as soon as it is reached. 90 %: the heating is covered by the sun."
         }
+      },
+      "routeur": {
+        "title": "Solar router",
+        "description": "Surplus goes to the water heater first, then the pool pump. The router only observes until its « Driving » switch is on: turn dhwp_smart and pool_pump off first.",
+        "data": {
+          "water_contactor_entity": "Water heater: contactor (signal)",
+          "water_boost_entity": "Water heater: boost duration (Cozytouch)",
+          "water_tank_top_entity": "Water heater: top probe",
+          "water_tank_middle_entity": "Water heater: middle probe",
+          "water_heater_power_entity": "Water heater: heat pump power",
+          "water_heater_energy_entity": "Water heater: energy meter",
+          "water_garage_temp_entity": "Water heater room temperature",
+          "outdoor_temp_entity": "Outdoor temperature",
+          "tempo_color_entity": "Tempo: today's colour",
+          "tempo_next_color_entity": "Tempo: tomorrow's colour",
+          "tempo_hc_entity": "Tempo: off-peak now",
+          "forecast_today_entity": "Solar forecast: today's production",
+          "forecast_tomorrow_entity": "Solar forecast: tomorrow's production",
+          "pool_speed_entity": "Pool: pump speed",
+          "pool_switch_entity": "Pool: pump relay",
+          "pool_water_temp_entity": "Pool: water temperature",
+          "pool_air_temp_entity": "Pool: air temperature",
+          "water_heater_nominal_w": "Water heater: real draw when heating",
+          "pool_water_warm_c": "Pool: water warm enough for the high speeds"
+        },
+        "data_description": {
+          "water_contactor_entity": "The contactor commits the heater for at least two hours. Without it, neither load is driven.",
+          "pool_speed_entity": "Required: the router splits the surplus between both loads.",
+          "pool_switch_entity": "Relay off means the pump is deliberately unpowered: its speed is left alone.",
+          "water_heater_nominal_w": "Measured at about 650 W, not the 800 W nameplate."
+        }
       }
     }
   },
@@ -139,11 +170,60 @@
       },
       "fin_prevue": {
         "name": "Expected end"
+      },
+      "chauffe_eau_decision": {
+        "name": "Water heater decision",
+        "state": {
+          "wait": "Waiting",
+          "heat_solar": "Solar heating",
+          "heat_hc": "Off-peak heating",
+          "boost": "Boost",
+          "hard_floor": "Comfort floor",
+          "hold_signal": "Contactor hold"
+        }
+      },
+      "piscine_vitesse_cible": {
+        "name": "Wanted pool speed"
+      },
+      "reseau_lisse": {
+        "name": "Smoothed grid"
+      },
+      "reserve_appareils": {
+        "name": "Reserved for appliances"
+      },
+      "chauffe_eau_jours_appris": {
+        "name": "Learned usage days"
       }
     },
     "switch": {
       "depart_solaire": {
         "name": "Solar start"
+      },
+      "pilotage": {
+        "name": "Driving"
+      }
+    },
+    "select": {
+      "mode_chauffe_eau": {
+        "name": "Water heater mode",
+        "state": {
+          "auto": "Automatic",
+          "off": "Off",
+          "boost": "Boost",
+          "hc_only": "Off-peak only",
+          "solar_only": "Solar only"
+        }
+      },
+      "mode_piscine": {
+        "name": "Pool mode",
+        "state": {
+          "auto": "Automatic",
+          "winter": "Winter",
+          "off": "Off",
+          "v1": "Speed 1",
+          "v2": "Speed 2",
+          "v3": "Speed 3"
+        }
       }
     }
   }
