@@ -248,7 +248,7 @@ class PoolSpeedSlider(RouterEntity, NumberEntity):
         return {"mode": self.router.memory.pool.mode}
 
     async def async_set_native_value(self, value: float) -> None:
-        await self.router.async_set_pool_mode(SPEED_TO_MODE[int(round(value))])
+        await self.router.async_set_pool_mode(SPEED_TO_MODE[round(value)])
         await self.coordinator.async_request_refresh()
 
 
