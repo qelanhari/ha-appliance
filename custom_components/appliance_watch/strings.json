@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Appliance Watch",
+        "title": "Home Energy Pilot",
         "description": "Le lave-vaisselle n'étant mesuré par aucun capteur, il est lu dans ce qui reste de la consommation de la maison une fois retranché tout ce qui est mesuré. Indiquez donc la consommation totale, puis les appareils déjà comptés ailleurs.",
         "data": {
           "total_entity": "Consommation totale de la maison",

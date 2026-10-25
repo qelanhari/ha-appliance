@@ -125,7 +125,7 @@ class ApplianceWatchConfigFlow(ConfigFlow, domain=DOMAIN):
                               ) -> ConfigFlowResult:
         if user_input is None:
             return self.async_show_form(step_id="user", data_schema=_install_schema())
-        return self.async_create_entry(title="Appliance Watch", data=user_input)
+        return self.async_create_entry(title="Home Energy Pilot", data=user_input)
 
     @staticmethod
     @callback

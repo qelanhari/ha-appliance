@@ -1,4 +1,4 @@
-"""Appliance Watch — cycle detection from power, for appliances nothing measures."""
+"""Home Energy Pilot — appliance cycles from power, and a solar router."""
 
 from __future__ import annotations
 

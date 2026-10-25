@@ -27,7 +27,7 @@ class ApplianceEntity(CoordinatorEntity[ApplianceCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{coordinator.entry.entry_id}_{watcher}")},
             name=DEVICE_NAMES.get(watcher, watcher.replace("_", " ").title()),
-            manufacturer="Appliance Watch",
+            manufacturer="Home Energy Pilot",
             model=MODELS.get(watcher, "Détection par la consommation"),
         )
 

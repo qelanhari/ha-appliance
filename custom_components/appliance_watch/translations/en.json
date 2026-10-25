@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Appliance Watch",
+        "title": "Home Energy Pilot",
         "description": "Nothing meters the dishwasher, so it is read from whatever is left of the house's consumption once every metered appliance is subtracted. Point at the house total, then at what is already measured elsewhere.",
         "data": {
           "total_entity": "Whole-house consumption",

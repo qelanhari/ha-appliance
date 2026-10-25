@@ -106,7 +106,7 @@ def entity_id(hass, entry, suffix: str) -> str | None:
 
 
 async def setup_entry(hass, data=None):
-    entry = MockConfigEntry(domain=DOMAIN, data=data or DATA, title="Appliance Watch")
+    entry = MockConfigEntry(domain=DOMAIN, data=data or DATA, title="Home Energy Pilot")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -190,7 +190,7 @@ async def test_the_dryer_s_learned_rhythm_survives_the_split(hass, hass_storage)
     """Before 0.5 the dryer was learned under the shared laundry watcher."""
     learned = {"durations": [62.0], "energies": [1300.0], "pauses_s": [120.0],
                "heats": [], "rejected": 0}
-    entry = MockConfigEntry(domain=DOMAIN, data=DATA, title="Appliance Watch")
+    entry = MockConfigEntry(domain=DOMAIN, data=DATA, title="Home Energy Pilot")
     hass_storage[f"{DOMAIN}.{entry.entry_id}"] = {
         "version": 1, "key": f"{DOMAIN}.{entry.entry_id}",
         "data": {"buanderie": {"total_energy_wh": 5000.0, "fingerprints": {

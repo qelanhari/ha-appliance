@@ -1,7 +1,12 @@
-# Appliance Watch
+# Home Energy Pilot
 
 Home Assistant integration that follows a dishwasher, a washing machine and a
-tumble dryer, and exposes the discrete states an iOS Live Activity needs.
+tumble dryer, exposes the discrete states an iOS Live Activity needs, and
+routes the solar surplus — to those machines first, then the water heater,
+then the pool pump.
+
+Its domain is still `appliance_watch`, the integration's first name: renaming
+a domain would orphan the config entry and every entity id.
 
 It exists for the situations the usual "appliance finished" blueprints do not
 handle:
@@ -294,8 +299,8 @@ announces its own length.
 
 ## Install
 
-HACS → custom repository → `qelanhari/ha-appliance` → Integration. Then
-*Settings → Devices & Services → Add integration → Appliance Watch*, and point
+HACS → custom repository → `qelanhari/ha-energy-pilot` → Integration. Then
+*Settings → Devices & Services → Add integration → Home Energy Pilot*, and point
 it at:
 
 - the **whole-house consumption** sensor;

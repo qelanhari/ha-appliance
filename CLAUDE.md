@@ -1,4 +1,4 @@
-# CLAUDE.md — ha-appliance
+# CLAUDE.md — ha-energy-pilot
 
 Guidance for working in this repository.
 
