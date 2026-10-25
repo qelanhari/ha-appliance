@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -35,6 +36,7 @@ from .const import (
     entry_value,
 )
 from .logic.residual import to_watts
+from .logic.solar_curve import Curve
 from .logic.solar_start import Decision, Forecast, SolarStartConfig, SolarStarter
 from .logic.sun_outlook import ForecastNow, Outlook
 
@@ -135,7 +137,8 @@ class WasherSolarStart:
 
     async def process(self, now: datetime, *, washer_running: bool | None,
                       asleep: bool, total: timedelta | None,
-                      yield_w: float = 0.0) -> None:
+                      yield_w: float = 0.0, curve: Curve | None = None,
+                      bias: float = 1.0) -> None:
         """Feed the grid reading, decide, and wake or start if it is time.
 
         ``yield_w`` is what the pool pump would give back by dropping to v1:
@@ -153,7 +156,8 @@ class WasherSolarStart:
         self.decision = self._starter.decide(
             now, armed=self._armed(), washer_running=washer_running,
             enabled=self.enabled, asleep=asleep, total=total, price=self._float(CONF_PRICE),
-            forecast=forecast, peak_at=self._peak_at(), sky=self._sky(forecast),
+            forecast=forecast, peak_at=self._peak_at(),
+            sky=replace(self._sky(forecast), curve=curve or None, bias=bias),
             expensive_now=self._expensive_now())
         if self.decision.wake:
             await self._press(WAKE_OPTION)

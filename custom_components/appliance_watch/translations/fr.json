@@ -78,13 +78,15 @@
           "pool_water_temp_entity": "Piscine : température de l'eau",
           "pool_air_temp_entity": "Piscine : température de l'air",
           "water_heater_nominal_w": "Chauffe-eau : puissance réelle en chauffe",
-          "pool_water_warm_c": "Piscine : eau assez chaude pour les vitesses hautes"
+          "pool_water_warm_c": "Piscine : eau assez chaude pour les vitesses hautes",
+          "solar_forecast_entry": "Prévision solaire horaire (courbe)"
         },
         "data_description": {
           "water_contactor_entity": "Le contacteur engage le chauffe-eau pour deux heures au moins. Sans lui, ni contacteur ni pompe ne sont pilotés.",
           "pool_speed_entity": "Sans elle, le routeur ne fonctionne pas : il répartit le surplus entre les deux charges.",
           "pool_switch_entity": "Relais coupé, la pompe est hors tension volontairement : le routeur ne touche pas à sa vitesse.",
-          "water_heater_nominal_w": "Mesurée : environ 650 W, pas les 800 W de la plaque."
+          "water_heater_nominal_w": "Mesurée : environ 650 W, pas les 800 W de la plaque.",
+          "solar_forecast_entry": "La courbe heure par heure, moins ce que la maison consomme à chaque heure, dit quand le surplus pourra porter le chauffe-eau. Open-Meteo Solar Forecast prévoit mieux ici que Forecast.Solar (corrélation avec le réel 0,86 contre 0,74 sur 29 jours)."
         }
       }
     }
@@ -197,6 +199,9 @@
       },
       "chauffe_eau_jours_appris": {
         "name": "Jours d'habitudes appris"
+      },
+      "biais_prevision": {
+        "name": "Biais de la prévision solaire"
       }
     },
     "switch": {

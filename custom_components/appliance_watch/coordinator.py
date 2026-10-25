@@ -44,6 +44,7 @@ from .const import (
     WASHER,
     entry_value,
 )
+from .forecast_source import SolarForecastSource
 from .logic.detector import (
     DryerConfig,
     DryerDetector,
@@ -160,7 +161,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self._washer = WasherFollower(WASHER)
         self._washer_entities = WasherEntities()
         self.solar = WasherSolarStart(hass, entry, self._state)
-        self.router = SolarRouter(hass, entry, self._state)
+        self.forecast = SolarForecastSource(hass, entry)
+        self.router = SolarRouter(hass, entry, self._state, self.forecast)
         self.states: dict[str, WatcherState] = {
             watcher: WatcherState(appliance=watcher)
             for watcher in (DISHWASHER, WASHER, DRYER)
@@ -328,7 +330,9 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         await self.solar.process(now, washer_running=self._washer.running,
                                  asleep=reading.status == THINQ_ASLEEP,
                                  total=reading.total,
-                                 yield_w=self.router.pool_yield_w)
+                                 yield_w=self.router.pool_yield_w,
+                                 curve=self.forecast.curve,
+                                 bias=self.router.memory.sky.bias)
         await self.router.process(now, self._running_appliances(now))
 
     def _running_appliances(self, now: datetime) -> list[RunningAppliance]:

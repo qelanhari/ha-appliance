@@ -231,6 +231,31 @@ peak, without the remaining energy and the sunset, it says nothing and waits.
 On 3 Oct (sun never above 35 % of the cycle) it now starts at 14:30 instead of
 never.
 
+### Reading the solar curve, not the day's total
+
+8 kWh spread thin over a grey day never lifts the export above the heater's
+650 W; the same 8 kWh in a midday bell runs it for two hours. The router reads
+the hourly curve of a forecast integration (Open-Meteo Solar Forecast or
+Forecast.Solar, through the Energy dashboard's platform) and counts an hour
+only if its forecast, less what the house draws at that hour, carries the
+heater with its 200 W margin.
+
+- **Night checkpoints**: tomorrow's sun is "enough" if the usable hours give
+  1.5 × the need. Back-tested on 29 nights against what the sun really
+  delivered: 26 right with the Open-Meteo curve, 16 with Forecast.Solar's
+  daily total (which heated at night before 12 sunny days).
+- **Daytime start**: a two-hour hold is committed only if the curve's next
+  two hours give at least half of it on the sun.
+- **Learned**: the forecast's bias, day by day (real over forecast, a
+  fortnight's memory), and the house's draw for each hour of the day, without
+  the heater and the pump (defaults: 30-day medians, 300-400 W by day).
+- Without a curve, the daily totals decide as before.
+
+Open-Meteo forecast better here: correlation with actual production 0.86
+day-ahead (0.86 hour by hour) against 0.74 for Forecast.Solar. The panels are
+set at azimuth 245°, tilt 45°: their physical 225° plus the morning shade of
+the main roof, as fitted on 30 days of production.
+
 ### Dishwasher stages
 
 Its heating *is* the detection signal, so the stage can be stated rather than

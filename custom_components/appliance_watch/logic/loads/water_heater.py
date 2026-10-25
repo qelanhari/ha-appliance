@@ -32,20 +32,12 @@ from datetime import datetime, time, timedelta
 
 try:                                              # pragma: no cover — import shim
     # As part of the HA custom component package.
-    from ..cost import (
-        CycleAccumulator,
-        blended_cost_eur_per_kwh,
-        can_still_meet_blended_cap,
-    )
+    from ..cost import CycleAccumulator
     from ..forecast import solar_can_cover, will_likely_cover_heating_need
     from ..thermo import energy_to_heat_kwh
 except ImportError:                                # pragma: no cover
     # Direct import in the test suite (sys.path points at this dir).
-    from cost import (  # type: ignore[no-redef]
-        CycleAccumulator,
-        blended_cost_eur_per_kwh,
-        can_still_meet_blended_cap,
-    )
+    from cost import CycleAccumulator  # type: ignore[no-redef]
     from forecast import (  # type: ignore[no-redef]
         solar_can_cover,
         will_likely_cover_heating_need,
@@ -90,6 +82,10 @@ class Inputs:
     boost_currently_on: bool = False          # observed appliance target == boost target
     boosts_today: int = 0                     # boost engagements since local midnight
     abundant_surplus_minutes: float = 0.0     # how long boost-level surplus has held
+    # ROUTEUR: read off the hourly curve (see logic.solar_curve), net of what
+    # the house draws each hour. None without a curve: the totals above decide.
+    solar_usable_hold_kwh: float | None = None      # sun for the heater over a 2 h hold from now
+    solar_usable_tomorrow_kwh: float | None = None  # sun for the heater tomorrow
 
 
 @dataclass(frozen=True)
@@ -177,6 +173,10 @@ class Thresholds:
     # and any further runtime is futile (refer to `reference_dhwp_*`
     # memories — middle probe is the Atlantic's actual control target).
     tank_full_margin_c: float = 0.5
+    # ROUTEUR: a two-hour hold is committed on the sun only if the curve gives
+    # at least this share of it — the same "half the cycle from the sun" the
+    # washer's solar start settles for when nothing better is coming.
+    hold_solar_share: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -403,12 +403,18 @@ def _hc_checkpoint_action(i: Inputs, thr: Thresholds) -> Decision | None:
     sun_need_kwh = i.energy_needed_kwh
     if sun_need_kwh <= 0 and i.tank_middle_c is not None:
         sun_need_kwh = energy_to_heat_kwh(i.tank_middle_c, thr.target_top_c)
-    tomorrow_will_cover = solar_can_cover(
-        i.forecast_tomorrow_kwh,
-        sun_need_kwh,
-        thr.pv_self_consumption_kwh,
-        thr.sunny_forecast_safety_factor,
-    )
+    if i.solar_usable_tomorrow_kwh is not None:
+        # ROUTEUR: the curve, hour by hour, already net of the house: only the
+        # hours whose surplus can carry the heater count.
+        tomorrow_will_cover = (i.solar_usable_tomorrow_kwh
+                               >= thr.sunny_forecast_safety_factor * sun_need_kwh)
+    else:
+        tomorrow_will_cover = solar_can_cover(
+            i.forecast_tomorrow_kwh,
+            sun_need_kwh,
+            thr.pv_self_consumption_kwh,
+            thr.sunny_forecast_safety_factor,
+        )
     # ROUTEUR: can tomorrow's sun be relied on to do this for free?
     # Two ways it cannot: the forecast is poor or unknown, or tomorrow is a
     # Rouge day — on which the router refuses to engage the contactor during
@@ -652,11 +658,17 @@ def _decide_impl(i: Inputs, thr: Thresholds) -> Decision:
         # back into the night, which is the very thing being fixed. The
         # surplus model belongs to the night checkpoints, where the whole
         # decision is a bet on tomorrow.
-        forecast_says_cover = will_likely_cover_heating_need(
-            i.forecast_today_kwh,
-            i.energy_needed_kwh,
-            thr.sunny_forecast_safety_factor,
-        )
+        if i.solar_usable_hold_kwh is not None:
+            # ROUTEUR: the curve says whether the next two hours hold, rather
+            # than whether the whole day's total covers the need.
+            hold_kwh = thr.heater_nominal_w * thr.signal_min_hold_minutes / 60 / 1000
+            forecast_says_cover = i.solar_usable_hold_kwh >= thr.hold_solar_share * hold_kwh
+        else:
+            forecast_says_cover = will_likely_cover_heating_need(
+                i.forecast_today_kwh,
+                i.energy_needed_kwh,
+                thr.sunny_forecast_safety_factor,
+            )
         if forecast_says_cover is False and i.energy_needed_kwh > 0:
             # Surplus is here now but forecast says it won't last. Don't
             # commit the 2h contactor cycle — wait for HC tonight.

@@ -52,6 +52,7 @@ from .const import (
     CONF_PRICE,
     CONF_RAIN,
     CONF_SOLAR,
+    CONF_SOLAR_FORECAST_ENTRY,
     CONF_STEP_MAX,
     CONF_STEP_MIN,
     CONF_TANK_MIDDLE,
@@ -65,6 +66,7 @@ from .const import (
     DOMAIN,
     entry_value,
 )
+from .forecast_source import FORECAST_DOMAINS
 from .logic.detector import DryerConfig, PlateauConfig
 from .logic.loads.pool import Thresholds as PoolThresholds
 from .logic.solar_start import SolarStartConfig
@@ -203,6 +205,14 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
             (CONF_POOL_WATER_TEMP, TEMPERATURE), (CONF_POOL_AIR_TEMP, TEMPERATURE),
         )
         schema: dict[Any, Any] = {}
+        sources = [selector.SelectOptionDict(value=source.entry_id,
+                                             label=f"{source.title} ({source.domain})")
+                   for domain in FORECAST_DOMAINS
+                   for source in self.hass.config_entries.async_entries(domain)]
+        if sources:
+            schema.update(_optional_entity(entry, CONF_SOLAR_FORECAST_ENTRY,
+                                           selector.SelectSelector(selector.SelectSelectorConfig(
+                                               options=sources))))
         for key, chooser in entities:
             schema.update(_optional_entity(entry, key, chooser))
         schema[vol.Required(CONF_HEATER_NOMINAL, default=entry_value(

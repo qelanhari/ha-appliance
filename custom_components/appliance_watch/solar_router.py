@@ -52,6 +52,7 @@ from .const import (
     STORAGE_VERSION,
     entry_value,
 )
+from .forecast_source import SolarForecastSource
 from .logic.loads import pool as pool_load
 from .logic.loads import water_heater as water_load
 from .logic.pattern import expected_kwh_for_day
@@ -66,6 +67,7 @@ from .logic.router_state import (
     from_dict,
     pattern_from_dict,
 )
+from .logic.solar_curve import Curve, Sky
 from .logic.thermo import energy_budget_until_morning_kwh
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,10 +99,13 @@ class Snapshot:
 class SolarRouter:
     """Routes the surplus to the water heater, then the pool pump."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, state: Reader) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, state: Reader,
+                 forecast: SolarForecastSource) -> None:
         self.hass = hass
         self.entry = entry
         self._state = state
+        self.forecast = forecast
+        self.sky: Sky | None = None
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.routeur")
         self.memory = RouterMemory()
@@ -213,6 +218,9 @@ class SolarRouter:
             return
         local = dt_util.as_local(now)
         smoothed = self.memory.feed_grid(now, grid)
+        curve = await self.forecast.refresh(now)
+        self._learn_sky(local, grid, int(speed), curve)
+        self.sky = self.memory.sky.sky(curve) if curve else None
         water = self._water_inputs(local, grid, smoothed)
         pool = self._pool_inputs(now, smoothed, pool_load._safe_speed(int(speed)))
         self._observe(now, water, pool)
@@ -231,6 +239,28 @@ class SolarRouter:
             if powered:
                 await self._drive_pool(now, pool, self.allocation.pool, make_way=make_way)
         self._save()
+
+    def _learn_sky(self, local: datetime, grid_w: float, speed: int, curve: Curve) -> None:
+        """The panels against the forecast, and the house without its two loads."""
+        pv = self._watts(CONF_SOLAR)
+        heater = self._watts(CONF_HEATER_POWER) or 0.0
+        pump = pool_load.PUMP_W[pool_load._safe_speed(speed)]
+        house = grid_w + pv - heater - pump if pv is not None else None
+        self.memory.sky.feed(local, pv_w=pv, house_w=house, curve=curve)
+
+    def _solar_usable(self, local: datetime) -> tuple[float | None, float | None]:
+        """Sun the heater can count on: over a hold from now, and tomorrow."""
+        if self.sky is None:
+            return None, None
+        thr = self.water_thresholds()
+        hold = timedelta(minutes=thr.signal_min_hold_minutes)
+        midnight = local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        tomorrow = self.sky.usable_kwh(midnight, midnight + timedelta(days=1),
+                                       thr.heater_nominal_w, thr.surplus_safety_margin_w)
+        if self.sky.day_kwh(midnight.date()) is None:
+            tomorrow = None  # the curve does not reach tomorrow yet
+        return (self.sky.usable_kwh(local, local + hold, thr.heater_nominal_w,
+                                    thr.surplus_safety_margin_w), tomorrow)
 
     def _water_inputs(self, local: datetime, grid_raw: float,
                       smoothed: float) -> water_load.Inputs:
@@ -259,6 +289,12 @@ class SolarRouter:
         boost = (self._float(CONF_BOOST) or 0.0) > 0.5 or (
             contactor_on and memory.boost_requested)
         abundant = water_load.abundant_surplus_for_boost(smoothed, heater_w, thr)
+        usable_hold, usable_tomorrow = self._solar_usable(local)
+        midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        # The curve's totals, corrected by the learned bias, before the sensors.
+        today_kwh = self.sky.day_kwh(midnight.date()) if self.sky else None
+        tomorrow_kwh = (self.sky.day_kwh((midnight + timedelta(days=1)).date())
+                        if self.sky else None)
         return water_load.Inputs(
             now=local, mode=memory.mode,
             tank_top_c=top if top is not None else thr.target_top_c,
@@ -268,8 +304,12 @@ class SolarRouter:
             pv_power_w=self._watts(CONF_SOLAR) or 0.0, heater_power_w=heater_w,
             tempo_color=tempo, tempo_next_color=self._text(CONF_TEMPO_NEXT),
             is_hc=is_hc,
-            forecast_today_kwh=self._float(CONF_FORECAST_TODAY),
-            forecast_tomorrow_kwh=self._float(CONF_FORECAST_TOMORROW),
+            forecast_today_kwh=(today_kwh if today_kwh is not None
+                                else self._float(CONF_FORECAST_TODAY)),
+            forecast_tomorrow_kwh=(tomorrow_kwh if tomorrow_kwh is not None
+                                   else self._float(CONF_FORECAST_TOMORROW)),
+            solar_usable_hold_kwh=usable_hold,
+            solar_usable_tomorrow_kwh=usable_tomorrow,
             energy_needed_kwh=needed, cycle=memory.cycle,
             signal_on_at=memory.signal_on_at, signal_currently_on=contactor_on,
             boost_currently_on=boost, boosts_today=memory.boosts_today,

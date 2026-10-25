@@ -58,6 +58,9 @@ def _water_attributes(router: SolarRouter) -> dict[str, Any]:
         "milieu_cuve_c": water.tank_middle_c,
         "besoin_kwh": round(water.energy_needed_kwh, 2),
         "boosts_du_jour": water.boosts_today,
+        "soleil_utilisable_2h_kwh": _round(water.solar_usable_hold_kwh),
+        "soleil_utilisable_demain_kwh": _round(water.solar_usable_tomorrow_kwh),
+        "prevision_demain_kwh": _round(water.forecast_tomorrow_kwh),
         "pilotage": router.memory.piloting,
     }
 
@@ -74,6 +77,21 @@ def _pool_attributes(router: SolarRouter) -> dict[str, Any]:
         "reseau_vu_w": round(allocation.grid_for_pool_w),
         "cede_au_chauffe_eau_w": round(allocation.pool_yield_w),
         "pilotage": router.memory.piloting,
+    }
+
+
+def _round(value: float | None) -> float | None:
+    return round(value, 2) if value is not None else None
+
+
+def _sky_attributes(router: SolarRouter) -> dict[str, Any]:
+    learned = router.memory.sky
+    return {
+        "source_courbe": router.forecast.entry_id,
+        "heures_de_courbe": len(router.forecast.curve),
+        "consommation_maison_par_heure_w": [round(value) for value in learned.house_w],
+        "production_reelle_du_jour_kwh": round(learned.day_actual_kwh, 2),
+        "prevision_du_jour_kwh": _round(learned.day_forecast_kwh),
     }
 
 
@@ -108,6 +126,12 @@ ROUTER_SENSORS: tuple[RouterSensorDescription, ...] = (
         native_unit_of_measurement=UnitOfPower.WATT,
         value=lambda r: _allocation(r, "appliance_reserve_w"),
         attributes=lambda r: {"cycles": sorted(r.running_reserves)},
+    ),
+    RouterSensorDescription(
+        key="biais_prevision",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value=lambda r: round(r.memory.sky.bias, 2),
+        attributes=_sky_attributes,
     ),
     RouterSensorDescription(
         key="chauffe_eau_jours_appris",

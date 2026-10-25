@@ -10,7 +10,9 @@ When the ratio cannot be measured (dawn, dusk), the rain says enough: over
 house's « pluie en cours » flag was on. The wet-rain sensor is no substitute —
 it stays wet after the shower (median 0.42).
 
-The best power still to come is read off the curve's shape:
+The best power still to come is read off the hourly curve when there is one:
+its highest hour from now to the end of the day. Without a curve, off the
+curve's shape:
 
 * before the day's peak, a half-sine peaks at π/2 times its mean, so the
   remaining energy over the remaining daylight gives the peak to expect;
@@ -23,7 +25,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from .solar_curve import Curve, hours_between
 
 # Below this forecast, the ratio is noise (dawn, dusk, a shadow on one panel).
 MIN_FORECAST_FOR_RATIO_W: float = 200.0
@@ -52,6 +56,10 @@ class ForecastNow:
     peak_at: datetime | None = None
     sunset_at: datetime | None = None
     raining: bool | None = None
+    # The hourly curve, as the source gave it, and its learned bias — used
+    # when the panels cannot be compared with the forecast.
+    curve: Curve | None = None
+    bias: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -75,8 +83,16 @@ def realism(pv_w: float | None, forecast_w: float | None,
     return max(low, min(high, pv_w / forecast_w))
 
 
+def _end_of_day(at: datetime) -> datetime:
+    return at.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+
+
 def best_forecast_w(at: datetime, forecast: ForecastNow) -> float | None:
     """The highest forecast power still ahead today, uncorrected."""
+    if forecast.curve:
+        hours = hours_between(forecast.curve, at.replace(minute=0, second=0, microsecond=0),
+                              _end_of_day(at))
+        return max((forecast.curve[hour] for hour, _ in hours), default=0.0)
     candidates = [value for value in (
         forecast.now_w,
         forecast.next_hour_kwh * 1000 if forecast.next_hour_kwh is not None else None,
@@ -96,9 +112,14 @@ def best_forecast_w(at: datetime, forecast: ForecastNow) -> float | None:
 
 def outlook(at: datetime, forecast: ForecastNow, pv_w: float | None) -> Outlook:
     ratio = realism(pv_w, forecast.now_w, forecast.raining)
+    if ratio is None and forecast.curve:
+        ratio = forecast.bias
     best = best_forecast_w(at, forecast)
-    over = (forecast.remaining_today_kwh is not None
-            and forecast.remaining_today_kwh < PRODUCTION_OVER_KWH)
+    remaining = forecast.remaining_today_kwh
+    if forecast.curve:
+        remaining = sum(forecast.curve[hour] * share for hour, share
+                        in hours_between(forecast.curve, at, _end_of_day(at))) / 1000
+    over = remaining is not None and remaining < PRODUCTION_OVER_KWH
     if over:
         best = 0.0
     elif best is not None and ratio is not None:

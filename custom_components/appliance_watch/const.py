@@ -69,6 +69,9 @@ CONF_POOL_WARM: Final = "pool_water_warm_c"
 # The pump's own relay (Shelly 1PM Gen4). Off means unpowered on purpose:
 # the router then leaves the speed alone.
 CONF_POOL_SWITCH: Final = "pool_switch_entity"
+# The solar forecast integration whose hourly curve the router reads
+# (Open-Meteo Solar Forecast or Forecast.Solar).
+CONF_SOLAR_FORECAST_ENTRY: Final = "solar_forecast_entry"
 # Measured draw of the Atlantic heat pump, not its 800 W nameplate.
 DEFAULT_HEATER_NOMINAL_W: Final = 650.0
 

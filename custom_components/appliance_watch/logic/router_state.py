@@ -21,6 +21,7 @@ from .fingerprints import Fingerprint
 from .loads import pool as pool_load
 from .loads import water_heater as water_load
 from .pattern import PatternState, update_pattern
+from .solar_curve import SkyMemory, memory_as_dict, memory_from_dict
 
 # Grid EMA time constant, in seconds. `pool_pump` used alpha 0.2 per 30 s,
 # i.e. tau = −30/ln(0.8) ≈ 134 s; the replay settled on the same 2.2 min.
@@ -162,6 +163,8 @@ class RouterMemory:
     grid_at: datetime | None = None
     water: WaterMemory = field(default_factory=WaterMemory)
     pool: PoolMemory = field(default_factory=PoolMemory)
+    # The forecast's learned bias and the house's hourly draw.
+    sky: SkyMemory = field(default_factory=SkyMemory)
 
     def feed_grid(self, now: datetime, grid_w: float) -> float:
         elapsed = (now - self.grid_at).total_seconds() if self.grid_at else 0.0
@@ -239,6 +242,7 @@ def as_dict(memory: RouterMemory) -> dict[str, Any]:
             "last_speed_change_at": _iso(pool.last_speed_change_at),
             "season": pool.season,
         },
+        "sky": memory_as_dict(memory.sky),
     }
 
 
@@ -281,6 +285,7 @@ def from_dict(data: dict[str, Any] | None) -> RouterMemory:
             last_speed_change_at=_when(pool.get("last_speed_change_at")),
             season=pool.get("season"),
         ),
+        sky=memory_from_dict(data.get("sky")),
     )
 
 

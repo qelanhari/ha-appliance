@@ -281,3 +281,55 @@ async def test_the_pump_may_run_while_an_armed_washer_waits(hass, noon):
 
     assert any(call.data["entity_id"] == SPEED and call.data["value"] > 1
                for call in set_value)
+
+
+class _EnergyPlatform:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def async_get_solar_forecast(self, hass, entry_id):
+        return self.payload
+
+
+class _Integration:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def async_get_platform(self, name):
+        assert name == "energy"
+        return _EnergyPlatform(self.payload)
+
+
+async def test_the_curve_is_read_through_the_energy_platform(hass, noon, monkeypatch):
+    import custom_components.appliance_watch.forecast_source as source_module
+
+    source = MockConfigEntry(domain="open_meteo_solar_forecast", title="Toit")
+    source.add_to_hass(hass)
+    payload = {"wh_hours": {"2026-07-15T12:00:00+00:00": 2400, "2026-07-15T13:00:00+00:00": 2500,
+                            "2026-07-16T12:00:00+00:00": 2400, "2026-07-16T13:00:00+00:00": 2500}}
+
+    async def fake_integration(hass, domain):
+        assert domain == "open_meteo_solar_forecast"
+        return _Integration(payload)
+
+    monkeypatch.setattr(source_module, "async_get_integration", fake_integration)
+    sunny_noon(hass)
+    await mocked(hass)
+    entry = await setup_entry(hass, ROUTER | {"solar_forecast_entry": source.entry_id})
+    await run(hass, noon, minutes=1)
+
+    router = hass.data[DOMAIN][entry.entry_id].router
+    decision = hass.states.get(entity_id(hass, entry, "routeur_chauffe_eau_decision"))
+    assert len(router.forecast.curve) == 4
+    assert decision.attributes["soleil_utilisable_demain_kwh"] == pytest.approx(1.3)
+
+
+async def test_without_a_curve_the_totals_still_decide(hass, noon):
+    sunny_noon(hass)
+    await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    await run(hass, noon, minutes=1)
+
+    decision = hass.states.get(entity_id(hass, entry, "routeur_chauffe_eau_decision"))
+    assert decision.attributes["soleil_utilisable_demain_kwh"] is None
+    assert decision.state == "heat_solar"
