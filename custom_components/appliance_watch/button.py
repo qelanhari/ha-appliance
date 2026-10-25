@@ -11,12 +11,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, DRYER
 from .coordinator import ApplianceCoordinator
 from .entity import ApplianceEntity
+from .router_entities import router_buttons
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
                             async_add_entities: AddEntitiesCallback) -> None:
     coordinator: ApplianceCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([ForgetFingerprintsButton(coordinator)])
+    async_add_entities([ForgetFingerprintsButton(coordinator), *router_buttons(coordinator)])
 
 
 class ForgetFingerprintsButton(ApplianceEntity, ButtonEntity):

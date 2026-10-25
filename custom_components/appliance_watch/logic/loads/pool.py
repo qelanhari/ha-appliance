@@ -26,6 +26,8 @@ PUMP_W: dict[int, int] = {0: 0, 1: 160, 2: 500, 3: 1100}
 
 MODE_AUTO = "auto"
 MODE_WINTER = "winter"
+# ROUTEUR: summer by hand, whatever the water says — the mirror of winter.
+MODE_SUMMER = "summer"
 MODE_OFF = "off"
 MODE_V1 = "v1"
 MODE_V2 = "v2"
@@ -33,6 +35,7 @@ MODE_V3 = "v3"
 MODES: tuple[str, ...] = (
     MODE_AUTO,
     MODE_WINTER,
+    MODE_SUMMER,
     MODE_OFF,
     MODE_V1,
     MODE_V2,
@@ -218,7 +221,11 @@ def _v3_cooldown_remaining_s(i: Inputs, thr: Thresholds) -> float:
 
 def decide(i: Inputs, thr: Thresholds) -> Decision:
     """Map (Inputs, Thresholds) to a Decision. Pure, deterministic."""
-    season = season_for(i, thr)
+    if i.mode == MODE_SUMMER:
+        # Forced summer is automatic mode with the season pinned.
+        season, i = SEASON_SUMMER, replace(i, mode=MODE_AUTO)
+    else:
+        season = season_for(i, thr)
     return replace(_decide_impl(i, thr, season), season=season)
 
 

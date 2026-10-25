@@ -129,8 +129,9 @@ class WaterMemory:
             self.cycle = CycleAccumulator()
             self.signal_on_at = now
         elif not on:
+            # The boost we set is kept track of until we cancel it ourselves:
+            # it would otherwise outlive the cycle and heat on the grid.
             self.signal_on_at = None
-            self.boost_requested = False
         self.last_switch_change_at = now
         self.switch_was_on = on
 
@@ -144,6 +145,8 @@ class PoolMemory:
     v3_last_ended_at: datetime | None = None
     last_speed_change_at: datetime | None = None
     season: str | None = None
+    # One-shot: a v3 skim asked for by hand, cooldown waived.
+    skim_requested: bool = False
     # Filtration since the filtration day began at 06:00, local time.
     filtration_day: date | None = None
     filtered_min: float = 0.0

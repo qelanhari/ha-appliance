@@ -210,6 +210,20 @@ the same grid meter and claimed the same surplus. One smoothed grid
 - **Rainwater pumps** are not routed: they pump when the water is there.
   They are ordinary consumption for the router.
 
+Manual controls on the « Routeur solaire » device, all sovereign over the
+automatic logic:
+
+- **Mode du chauffe-eau**: auto, off, boost (the Atlantic's own boost only —
+  the off-peak signal is left as it is), off-peak only, solar only.
+- **Mode de la piscine**: auto, winter, summer (forced, whatever the water),
+  off, speed 1, 2 or 3.
+- **Chauffe forcée (boost)**: one day of the Atlantic's boost, ending on its
+  own. The router never cancels a boost it did not set — and always cancels
+  its own once its cycle ends, or it would heat on alone, on the grid.
+- **Lancer un écumage**: a v3 session now if the sun pays for it, cooldown
+  and 5-minute dwell waived.
+- **Options**: minimum winter filtration per day (0 to switch off the top-up).
+
 Configured in the second Options step. It **observes only** until the
 « Pilotage » switch is turned on: the « Décision chauffe-eau » and
 « Vitesse piscine voulue » sensors show what it would do, with the reason.

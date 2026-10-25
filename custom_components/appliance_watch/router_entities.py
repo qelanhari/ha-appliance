@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from homeassistant.components.button import ButtonEntity
 from homeassistant.components.select import SelectEntity
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -211,6 +212,37 @@ class PoolModeSelect(RouterEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         await self.router.async_set_pool_mode(option)
         self.async_write_ha_state()
+
+
+class ForceHeatButton(RouterEntity, ButtonEntity):
+    """A day's boost of the Atlantic, at once; it ends on its own."""
+
+    _attr_icon = "mdi:water-boiler-alert"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, "chauffe_forcee")
+
+    async def async_press(self) -> None:
+        await self.router.async_force_heat()
+
+
+class LaunchSkimButton(RouterEntity, ButtonEntity):
+    """A v3 skim session now, if the sun pays for it; cooldown waived."""
+
+    _attr_icon = "mdi:pool"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, "lancer_ecumage")
+
+    async def async_press(self) -> None:
+        await self.router.async_launch_skim()
+        await self.coordinator.async_request_refresh()
+
+
+def router_buttons(coordinator: ApplianceCoordinator) -> list[ButtonEntity]:
+    if not coordinator.router.configured:
+        return []
+    return [ForceHeatButton(coordinator), LaunchSkimButton(coordinator)]
 
 
 def router_sensors(coordinator: ApplianceCoordinator) -> list[SensorEntity]:

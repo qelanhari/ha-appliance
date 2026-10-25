@@ -13,13 +13,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
-import pytest
 from dataclasses import replace
 from datetime import timedelta
 
-from logic.cost import CycleAccumulator  # noqa: E402
-from logic.loads.water_heater import (  # noqa: E402
-    MODE_AUTO,
+import pytest
+from logic.cost import CycleAccumulator
+from logic.loads.water_heater import (
     MODE_BOOST,
     MODE_HC_ONLY,
     MODE_OFF,
@@ -27,7 +26,6 @@ from logic.loads.water_heater import (  # noqa: E402
     abundant_surplus_for_boost,
     decide,
 )
-
 
 # ----------------------------------------------------------------------------
 # Manual modes
@@ -40,10 +38,16 @@ class TestManual:
         assert d.signal_switch_on is False
         assert d.boost_mode_on is False
 
-    def test_boost_turns_on_both(self, base_inputs, thr):
+    def test_boost_turns_on_the_boost_only(self, base_inputs, thr):
+        """ROUTEUR: the Atlantic's boost heats by itself; the signal is not
+        closed for two hours on the grid."""
         d = decide(replace(base_inputs, mode=MODE_BOOST), thr)
-        assert d.signal_switch_on is True
-        assert d.boost_mode_on is True
+        assert (d.signal_switch_on, d.boost_mode_on) == (False, True)
+
+    def test_boost_leaves_a_closed_signal_closed(self, base_inputs, thr):
+        d = decide(replace(base_inputs, mode=MODE_BOOST, signal_currently_on=True,
+                           signal_on_at=base_inputs.now), thr)
+        assert (d.signal_switch_on, d.boost_mode_on) == (True, True)
 
     def test_hc_only_off_in_hp(self, base_inputs, thr):
         d = decide(
@@ -372,7 +376,6 @@ class TestSignalHold:
             ),
             thr,
         )
-        assert d.signal_switch_on is True
         assert d.boost_mode_on is True
 
     def test_hc_ending_with_appliance_still_drawing_no_surplus_releases(
@@ -527,7 +530,7 @@ class TestRougeHp:
             replace(base_inputs, mode=MODE_BOOST, tempo_color="Rouge", is_hc=False),
             thr,
         )
-        assert d.signal_switch_on is True
+        assert d.boost_mode_on is True
 
     def test_rouge_hc_window_allowed(self, base_inputs, thr):
         # Rouge HC: same checkpoint gating as Bleu — only fires at a

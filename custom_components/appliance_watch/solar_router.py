@@ -47,6 +47,7 @@ from .const import (
     CONF_TEMPO_COLOR,
     CONF_TEMPO_HC,
     CONF_TEMPO_NEXT,
+    CONF_WINTER_MINUTES,
     DEFAULT_HEATER_NOMINAL_W,
     DOMAIN,
     STORAGE_VERSION,
@@ -139,8 +140,11 @@ class SolarRouter:
 
     def pool_thresholds(self) -> pool_load.Thresholds:
         base = pool_load.Thresholds()
-        return pool_load.Thresholds(water_warm_c=float(entry_value(
-            self.entry, CONF_POOL_WARM, base.water_warm_c)))
+        return pool_load.Thresholds(
+            water_warm_c=float(entry_value(self.entry, CONF_POOL_WARM, base.water_warm_c)),
+            winter_daily_minutes=float(entry_value(
+                self.entry, CONF_WINTER_MINUTES, base.winter_daily_minutes)),
+        )
 
     # --------------------------------------------------------- persistence
 
@@ -231,6 +235,8 @@ class SolarRouter:
         self.allocation = route(smoothed, water, self.water_thresholds(),
                                 pool, self.pool_thresholds(), running)
         self.memory.pool.season = self.allocation.pool.season
+        # The skim request is spent once read, granted or not.
+        self.memory.pool.skim_requested = False
         self.running_reserves = [f"{item.name}: {item.reserve_w:.0f} W" for item in running]
         # The heater's claim, or a machine still to heat: the pump hands its
         # surplus back now, not in 5 minutes. Its dwell is for clouds.
@@ -332,6 +338,7 @@ class SolarRouter:
             tempo_color=self._text(CONF_TEMPO_COLOR),
             is_hc=self._is_on(CONF_TEMPO_HC) is True, season=memory.season,
             filtered_today_min=filtered_min,
+            force_skim_requested=memory.skim_requested,
         )
 
     def _observe(self, now: datetime, water: water_load.Inputs,
@@ -359,22 +366,55 @@ class SolarRouter:
             if await self._call("switch", service, {"entity_id": self._entity(CONF_CONTACTOR)},
                                 decision.reason):
                 memory.contactor_changed(now, wanted)
-        # The boost is ours only within our own cycle: a boost set by hand on
-        # the Atlantic, contactor off, is left alone.
-        if (actual or wanted) and self._entity(CONF_BOOST):
+        if not self._entity(CONF_BOOST):
+            return
+        # In our cycle, or asked for by hand, the boost follows the decision.
+        # Out of it, the boost we set is cancelled: the Atlantic would go on
+        # heating on its own, on the grid.
+        if actual or wanted or memory.mode == water_load.MODE_BOOST:
             await self._drive_boost(decision.boost_mode_on, decision.reason)
+        else:
+            await self._drive_boost(False, "fin de la chauffe du routeur")
 
     async def _drive_boost(self, boost: bool, reason: str) -> None:
+        """Turn our boost on or off; never cancel one somebody else set."""
         memory = self.memory.water
-        if boost and not memory.boost_requested:
-            memory.boosts_today += 1
-        memory.boost_requested = boost
-        desired = BOOST_DAYS if boost else 0.0
         current = self._float(CONF_BOOST)
-        if current is not None and abs(current - desired) < 0.5:
+        running = current is not None and current > 0.5
+        if boost:
+            if running and not memory.boost_requested:
+                return  # someone else's boost already heats: not ours to own
+            if not memory.boost_requested:
+                memory.boosts_today += 1
+            memory.boost_requested = True
+            if not running:
+                await self._call("number", "set_value",
+                                 {"entity_id": self._entity(CONF_BOOST), "value": BOOST_DAYS},
+                                 reason)
             return
-        await self._call("number", "set_value",
-                         {"entity_id": self._entity(CONF_BOOST), "value": desired}, reason)
+        if not memory.boost_requested:
+            return
+        memory.boost_requested = False
+        if running:
+            await self._call("number", "set_value",
+                             {"entity_id": self._entity(CONF_BOOST), "value": 0.0}, reason)
+
+    async def async_force_heat(self) -> None:
+        """One boost of the Atlantic, a day long, left to end on its own.
+
+        Not marked as ours: the router will not cancel it. The signal is not
+        touched — the boost heats by itself.
+        """
+        if self._entity(CONF_BOOST):
+            await self._call("number", "set_value",
+                             {"entity_id": self._entity(CONF_BOOST), "value": BOOST_DAYS},
+                             "chauffe forcée à la demande")
+
+    async def async_launch_skim(self) -> None:
+        """A v3 skim now if the sun allows, its cooldown waived."""
+        self.memory.pool.skim_requested = True
+        self.memory.pool.v3_last_ended_at = None
+        await self._store.async_save(as_dict(self.memory))
 
     async def _drive_pool(self, now: datetime, inputs: pool_load.Inputs,
                           decision: pool_load.Decision, *, make_way: bool) -> None:
@@ -385,7 +425,7 @@ class SolarRouter:
         # Neither is stepping down for a load that just started.
         stepping_down = decision.target_speed < inputs.pump_speed
         sovereign = (memory.mode in pool_load.MANUAL_TO_SPEED or decision.leave_v3
-                     or (make_way and stepping_down))
+                     or inputs.force_skim_requested or (make_way and stepping_down))
         if not sovereign and not dwell_elapsed(memory.last_speed_change_at, now, PUMP_DWELL_S):
             return
         if await self._call("number", "set_value",

@@ -71,12 +71,13 @@ def test_rising_contactor_opens_a_cycle_and_its_hold():
     assert memory.water.signal_on_at == T0
 
 
-def test_falling_contactor_releases_the_hold_and_the_boost():
+def test_falling_contactor_releases_the_hold_but_remembers_our_boost():
+    """Our boost must be cancelled by us, or it heats on alone, on the grid."""
     memory = RouterMemory()
     memory.water.contactor_changed(T0, True)
     memory.water.boost_requested = True
     memory.water.contactor_changed(T0 + timedelta(hours=2), False)
-    assert (memory.water.signal_on_at, memory.water.boost_requested) == (None, False)
+    assert (memory.water.signal_on_at, memory.water.boost_requested) == (None, True)
 
 
 def test_heater_energy_is_booked_by_source():

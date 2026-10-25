@@ -517,7 +517,9 @@ def decide(i: Inputs, thr: Thresholds) -> Decision:
     with `signal_currently_on=False` and decides `signal_switch_on=True`).
     """
     d = _decide_impl(i, thr)
-    if i.signal_currently_on and d.signal_switch_on and d.boost_mode_on != i.boost_currently_on:
+    # ROUTEUR: a boost asked for by hand is sovereign, cycle or not.
+    if (i.mode != MODE_BOOST and i.signal_currently_on and d.signal_switch_on
+            and d.boost_mode_on != i.boost_currently_on):
         # Cycle in progress — freeze boost at its current value.
         return Decision(
             signal_switch_on=d.signal_switch_on,
@@ -533,7 +535,10 @@ def _decide_impl(i: Inputs, thr: Thresholds) -> Decision:
     if i.mode == MODE_OFF:
         return Decision(False, False, "manual=off", "wait")
     if i.mode == MODE_BOOST:
-        return Decision(True, True, "manual=boost", "boost")
+        # ROUTEUR: the Atlantic's boost heats on its own; the off-peak signal
+        # is left as it is rather than closed for two hours on the grid.
+        return Decision(i.signal_currently_on, True,
+                        "manual=boost · boost seul, signal inchangé", "boost")
 
     # 1b. Universal "tank is essentially full + appliance has self-stopped"
     # gate. The appliance's middle probe is at (or past) target and it

@@ -91,3 +91,14 @@ def test_a_long_gap_is_not_counted_whole():
     memory.count_filtration(datetime(2026, 12, 10, 12, 0, tzinfo=TZ), running=True)
     memory.count_filtration(datetime(2026, 12, 10, 14, 0, tzinfo=TZ), running=True)
     assert memory.filtered_min == 10.0
+
+
+def test_no_top_up_when_the_option_is_zero():
+    assert winter_top_up_due(night(5, 30), Thresholds(winter_daily_minutes=0)) is None
+
+
+def test_forced_summer_ignores_cold_water():
+    day = replace(night(5, 0), now=datetime(2026, 12, 10, 14, 0, tzinfo=TZ), daylight=True,
+                  is_hc=False, mode="summer", grid_w=-600.0)
+    decision = decide(day, Thresholds())
+    assert decision.season == "ete" and "winter" not in decision.reason

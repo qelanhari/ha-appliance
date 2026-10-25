@@ -352,3 +352,58 @@ async def test_a_sunless_winter_day_is_topped_up_at_the_end_of_the_night(hass, f
 
     await run(hass, freezer, minutes=10)                # past 04:00
     assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED] == [1.0]
+
+
+async def test_a_manual_boost_lights_the_boost_only(hass, noon):
+    sunny_noon(hass, export_w=0)
+    turn_on, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    await router.async_set_water_mode("boost")
+    await run(hass, noon, minutes=2)
+    assert not [c for c in turn_on if c.data["entity_id"] == CONTACTOR]
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == BOOST] == [1.0]
+
+    await router.async_set_water_mode("auto")
+    await run(hass, noon, minutes=2)
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == BOOST] == [1.0, 0.0]
+
+
+async def test_a_forced_heat_is_never_cancelled_by_the_router(hass, noon):
+    sunny_noon(hass, export_w=2500)
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    await drive(hass, entry)
+    await hass.services.async_call("button", "press", {
+        "entity_id": entity_id(hass, entry, "routeur_chauffe_forcee")}, blocking=True)
+    await run(hass, noon, minutes=10)       # a solar cycle runs meanwhile
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == BOOST] == [1.0]
+
+
+async def test_the_router_cancels_its_own_boost_after_its_cycle(hass, noon):
+    sunny_noon(hass, export_w=0)
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    router.memory.water.boost_requested = True    # left over from a solar boost
+    hass.states.async_set(BOOST, "1")
+    await run(hass, noon, minutes=1)
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == BOOST] == [0.0]
+
+
+async def test_a_skim_launched_by_hand_goes_straight_to_v3(hass, noon):
+    sunny_noon(hass, export_w=2500)
+    hass.states.async_set(MIDDLE, "54")
+    hass.states.async_set(TOP, "54.5")
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    router.memory.pool.last_speed_change_at = dt_util.utcnow()
+    router.memory.pool.v3_last_ended_at = dt_util.utcnow()
+    await hass.services.async_call("button", "press", {
+        "entity_id": entity_id(hass, entry, "routeur_lancer_ecumage")}, blocking=True)
+    await hass.async_block_till_done()
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED][:1] == [3.0]

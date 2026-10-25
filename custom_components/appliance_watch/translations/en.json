@@ -79,14 +79,16 @@
           "pool_air_temp_entity": "Pool: air temperature",
           "water_heater_nominal_w": "Water heater: real draw when heating",
           "pool_water_warm_c": "Pool: water warm enough for the high speeds",
-          "solar_forecast_entry": "Hourly solar forecast (curve)"
+          "solar_forecast_entry": "Hourly solar forecast (curve)",
+          "pool_winter_daily_minutes": "Pool: minimum daily filtration in winter"
         },
         "data_description": {
           "water_contactor_entity": "The contactor commits the heater for at least two hours. Without it, neither load is driven.",
           "pool_speed_entity": "Required: the router splits the surplus between both loads.",
           "pool_switch_entity": "Relay off means the pump is deliberately unpowered: its speed is left alone.",
           "water_heater_nominal_w": "Measured at about 650 W, not the 800 W nameplate.",
-          "solar_forecast_entry": "The hour-by-hour curve, less what the house draws each hour, tells when the surplus can carry the heater. Open-Meteo Solar Forecast predicts better here than Forecast.Solar (0.86 vs 0.74 correlation with actual over 29 days)."
+          "solar_forecast_entry": "The hour-by-hour curve, less what the house draws each hour, tells when the surplus can carry the heater. Open-Meteo Solar Forecast predicts better here than Forecast.Solar (0.86 vs 0.74 correlation with actual over 29 days).",
+          "pool_winter_daily_minutes": "From 06:00 to 06:00. What the sun did not cover runs at speed 1 at the end of the off-peak window, finishing at 06:00. 0: no top-up."
         }
       }
     }
@@ -103,6 +105,12 @@
     "button": {
       "oublier_empreintes": {
         "name": "Forget learned durations"
+      },
+      "chauffe_forcee": {
+        "name": "Forced heating (boost)"
+      },
+      "lancer_ecumage": {
+        "name": "Launch a skim"
       }
     },
     "sensor": {
@@ -231,7 +239,8 @@
           "off": "Off",
           "v1": "Speed 1",
           "v2": "Speed 2",
-          "v3": "Speed 3"
+          "v3": "Speed 3",
+          "summer": "Summer"
         }
       }
     }

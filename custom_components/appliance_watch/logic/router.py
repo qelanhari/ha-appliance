@@ -142,7 +142,7 @@ def pool_yield_w(pool_inputs: pool_load.Inputs) -> float:
     Only in automatic mode: a speed chosen by hand is the user's, and winter
     already runs on the sun alone at v1 at most.
     """
-    if pool_inputs.mode != pool_load.MODE_AUTO:
+    if pool_inputs.mode not in (pool_load.MODE_AUTO, pool_load.MODE_SUMMER):
         return 0.0
     speed = pool_load._safe_speed(pool_inputs.pump_speed)
     return max(0.0, pool_load.PUMP_W[speed] - pool_load.PUMP_W[1])
