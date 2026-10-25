@@ -15,8 +15,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
-from logic.samples import time_weighted_mean  # noqa: E402
-from logic.solar_start import (  # noqa: E402
+from logic.samples import time_weighted_mean
+from logic.solar_start import (
     WASHER_PROFILE,
     Forecast,
     SolarStartConfig,
@@ -24,6 +24,7 @@ from logic.solar_start import (  # noqa: E402
     estimate,
     profile_for,
 )
+from logic.sun_outlook import ForecastNow
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 UNAVAILABLE = ("unknown", "unavailable")
@@ -44,7 +45,7 @@ def _at(series: list, at: datetime):
 
 
 def day(name: str, *, armed_from: str = "00:00", config: SolarStartConfig | None = None,
-        **conditions) -> list:
+        with_sky: bool = False, **conditions) -> list:
     """Every decision of the day, (at, decision), the washer armed from ``armed_from``."""
     payload = json.loads((FIXTURES / f"{name}.json").read_text())
     context = payload["context"]
@@ -72,7 +73,9 @@ def day(name: str, *, armed_from: str = "00:00", config: SolarStartConfig | None
         out.append((at, starter.decide(
             at, armed=armed, washer_running=conditions["washer_running"],
             enabled=conditions["enabled"], price=_at(prices, at),
-            forecast=forecast, peak_at=_at(peaks, at))))
+            forecast=forecast, peak_at=_at(peaks, at),
+            sky=(ForecastNow(now_w=forecast_now, next_hour_kwh=forecast_next,
+                             peak_at=_at(peaks, at)) if with_sky else None))))
     return out
 
 
@@ -172,6 +175,22 @@ def test_a_patchy_afternoon_does_not():
     """3 Oct: ~500 W of export from 14:10, gone by 14:30. Started at any time
     that day, the cycle would have saved 35 % at best."""
     assert first_start("grid_sat_1000") is None
+
+
+def test_the_same_afternoon_it_stops_waiting_for_a_sun_that_never_came():
+    """Read against the sky, 3 Oct had nothing left to offer by mid-afternoon:
+    the panels well under a forecast already past its peak."""
+    started = next(((at, d) for at, d in day("grid_sat_1000", with_sky=True) if d.start),
+                   None)
+    assert started is not None
+    assert started[1].reason == "soleil hors d'atteinte aujourd'hui"
+    assert started[0].hour >= 13
+
+
+def test_a_sunny_day_starts_as_before_with_the_sky_read():
+    plain = next(at for at, d in day("grid_wed_0923") if d.start)
+    read = next(at for at, d in day("grid_wed_0923", with_sky=True) if d.start)
+    assert read == plain
 
 
 def test_a_quarter_hour_of_sun_would_have_been_fooled():

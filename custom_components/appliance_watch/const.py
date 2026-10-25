@@ -39,6 +39,10 @@ CONF_PRICE: Final = "price_entity"
 CONF_FORECAST_NOW: Final = "forecast_now_entity"
 CONF_FORECAST_NEXT_HOUR: Final = "forecast_next_hour_entity"
 CONF_MIN_SAVING: Final = "solar_min_saving_pct"
+# What the sky still holds today, so as not to wait for a sun that will not
+# come: Forecast.Solar's remaining energy, and the house's rain flag.
+CONF_FORECAST_REMAINING: Final = "forecast_remaining_entity"
+CONF_RAIN: Final = "rain_entity"
 
 # Solar router: the water heater and the pool pump, routed on the same
 # smoothed grid (CONF_GRID, CONF_SOLAR above). Without the contactor or the

@@ -30,6 +30,7 @@ from .const import (
     CONF_FORECAST_NEXT_HOUR,
     CONF_FORECAST_NOW,
     CONF_FORECAST_PEAK,
+    CONF_FORECAST_REMAINING,
     CONF_FORECAST_TODAY,
     CONF_FORECAST_TOMORROW,
     CONF_GARAGE_TEMP,
@@ -49,6 +50,7 @@ from .const import (
     CONF_POOL_WARM,
     CONF_POOL_WATER_TEMP,
     CONF_PRICE,
+    CONF_RAIN,
     CONF_SOLAR,
     CONF_STEP_MAX,
     CONF_STEP_MIN,
@@ -73,6 +75,8 @@ MEASURED = selector.EntitySelector(selector.EntitySelectorConfig(
 OPTIONAL = selector.EntitySelector(selector.EntitySelectorConfig(
     domain="sensor", multiple=True))
 ANY_SENSOR = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+RAIN = selector.EntitySelector(selector.EntitySelectorConfig(
+    domain=["binary_sensor", "input_boolean"]))
 SWITCH = selector.EntitySelector(selector.EntitySelectorConfig(domain="switch"))
 NUMBER = selector.EntitySelector(selector.EntitySelectorConfig(domain="number"))
 BINARY = selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor"))
@@ -158,6 +162,8 @@ class ApplianceWatchOptionsFlow(OptionsFlow):
             **_optional_entity(entry, CONF_FORECAST_NOW, ANY_SENSOR),
             **_optional_entity(entry, CONF_FORECAST_NEXT_HOUR, ANY_SENSOR),
             **_optional_entity(entry, CONF_FORECAST_PEAK, ANY_SENSOR),
+            **_optional_entity(entry, CONF_FORECAST_REMAINING, ANY_SENSOR),
+            **_optional_entity(entry, CONF_RAIN, RAIN),
             vol.Required(CONF_GOOD_SAVING, default=entry_value(
                 entry, CONF_GOOD_SAVING, solar.good_saving * 100)): _number(0, 100, 5, "%"),
             vol.Required(CONF_MIN_SAVING, default=entry_value(

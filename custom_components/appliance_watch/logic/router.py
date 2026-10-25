@@ -18,8 +18,9 @@ borrowed and steps down from, not consumption the heater must work around.
 
 Above both come the machines humans start: dishwasher, washer, dryer. Until
 their last heating they have priority, so the heating power they still owe is
-reserved against the heater's start and the pump's step-ups — see
-:class:`RunningAppliance`.
+reserved against the heater's start, which commits two hours — see
+:class:`RunningAppliance`. The pump, which stops at once, is not held back:
+it makes way when a machine heats.
 
 Pure module: no Home Assistant import, no I/O.
 """
@@ -99,6 +100,11 @@ WASHER_HEATING_OVER: frozenset[str] = frozenset(
     {"rincage", "essorage", "refroidissement", "attente_rincage"})
 
 
+def has_priority(appliance: RunningAppliance) -> bool:
+    """A machine under way that still has to heat: everything else makes way."""
+    return not appliance.waiting and not appliance.heating_done
+
+
 def heating_done(name: str, *, stage: str | None = None, heats: int = 0,
                  expected_heats: int | None = None, heating_now: bool = False) -> bool:
     """Whether a machine's last heating is behind it. Unknown is False."""
@@ -152,11 +158,12 @@ def route(
 ) -> Allocation:
     """Decide for every load, in priority order.
 
-    Machines still to heat come first: their reserve is surplus neither the
-    heater nor the pump may take. It weighs on the heater only while it is not
-    engaged — a contactor already closed cannot be opened before two hours, so
-    there is nothing left to decide. It weighs on the pump's step-ups, while
-    the pump keeps its v1 baseline.
+    Machines still to heat come first, but only against what cannot be
+    stopped at once: the heater, whose contactor commits two hours. Its reserve
+    weighs on the heater's start only — a contactor already closed has nothing
+    left to decide. The pump stops in seconds, so it may use the surplus while
+    a machine waits or pauses between heats, and makes way the moment one
+    heats (see ``SolarRouter``).
     """
     running = running or []
     reserve = appliance_reserve_w(running)
@@ -179,7 +186,7 @@ def route(
     if water.signal_switch_on:
         claimed = max(0.0, water_thr.heater_nominal_w - water_inputs.heater_power_w)
 
-    pool_grid = grid_smooth_w + claimed + reserve
+    pool_grid = grid_smooth_w + claimed
     pool = pool_load.decide(replace(pool_inputs, grid_w=pool_grid), pool_thr)
 
     return Allocation(
@@ -209,6 +216,7 @@ __all__ = [
     "Allocation",
     "RunningAppliance",
     "appliance_reserve_w",
+    "has_priority",
     "heating_done",
     "pool_yield_w",
     "route",

@@ -15,6 +15,13 @@ The cost is estimated, not hoped for:
   otherwise lost;
 * whether that lasts — the solar forecast for the next hour.
 
+And it does not wait for a sun that will not come. When the forecast, scaled
+by what the panels really produce, can no longer reach the lower bar today —
+for a whole observation window, so that a cloud is not taken for the day — it
+stops waiting: it starts now, or at the off-peak hours on a Rouge peak, or
+waits for tomorrow if armed once the day's production is over and tomorrow is
+a good day.
+
 Pure module: no Home Assistant import, no I/O.
 """
 
@@ -24,6 +31,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from .samples import Trace
+from .sun_outlook import ForecastNow, Outlook, outlook
 
 # The washer's draw on 3 Oct 2026, 86-minute programme: (minutes, watts). It
 # heats twice, early — 39 Wh at 1.5 kW, then 158 Wh at 2.1 kW — and tumbles
@@ -156,6 +164,8 @@ class SolarStarter:
         self._pv = Trace(keep=self.config.window + timedelta(minutes=1))
         self._asked_at: datetime | None = None
         self._woken_at: datetime | None = None
+        self._out_of_reach_since: datetime | None = None
+        self.outlook: Outlook | None = None
 
     def feed_grid(self, at: datetime, watts: float) -> None:
         """One grid reading, signed: negative is export."""
@@ -210,18 +220,54 @@ class SolarStarter:
         level = self._trace.quantile(start, at, 1 - self.config.held_quantile)
         return None if level is None else max(0.0, -level)
 
+    def bar_w(self, total: timedelta | None) -> float:
+        """The least held export that reaches the lower bar, for this programme."""
+        profile, low, high = profile_for(total), 0.0, 5000.0
+        for _ in range(20):
+            middle = (low + high) / 2
+            if estimate(profile, middle, None, None).saving >= self.config.min_saving:
+                high = middle
+            else:
+                low = middle
+        return high
+
+    def _median(self, trace: Trace, at: datetime) -> float | None:
+        if not self._observed(trace, at):
+            return None
+        return trace.quantile(at - self.config.window, at, 0.5)
+
+    def _sun_out_of_reach(self, at: datetime, total: timedelta | None,
+                          sky: ForecastNow | None) -> bool:
+        """True once the lower bar has been out of reach for a whole window."""
+        grid = self._median(self._trace, at)
+        pv = self._median(self._pv, at)
+        self.outlook = outlook(at, sky, pv) if sky is not None else None
+        best = self.outlook.best_pv_w if self.outlook else None
+        if grid is None or best is None or (pv is None and not self.outlook.production_over):
+            self._out_of_reach_since = None
+            return False
+        house_w = (pv or 0.0) + grid
+        if best - house_w >= self.bar_w(total):
+            self._out_of_reach_since = None
+            return False
+        if self._out_of_reach_since is None:
+            self._out_of_reach_since = at
+        return at - self._out_of_reach_since >= self.config.window
+
     def decide(self, at: datetime, *, armed: bool | None,
                washer_running: bool | None, enabled: bool,
                asleep: bool = False, total: timedelta | None = None, price: float | None = None,
                forecast: Forecast | None = None,
-               peak_at: datetime | None = None) -> Decision:
+               peak_at: datetime | None = None,
+               sky: ForecastNow | None = None,
+               expensive_now: bool = False) -> Decision:
         """Whether to start now — True once per attempt.
 
         Every condition has to be *known*: a remote-start flag or a washer
         status that ThinQ cannot report is no permission to start a machine.
         """
         if not (enabled and armed is True and washer_running is False):
-            self._asked_at = self._woken_at = None
+            self._asked_at = self._woken_at = self._out_of_reach_since = None
             return Decision(waiting=False, estimate=None)
         surplus = self.held_export_w(at)
         if surplus is None:
@@ -233,7 +279,14 @@ class SolarStarter:
         decision = Decision(waiting=True, estimate=result,
                             required=required, reason=reason)
         if result.saving < required:
-            return decision
+            if not self._sun_out_of_reach(at, total, sky):
+                return decision
+            if self.outlook is not None and self.outlook.production_over \
+                    and self.outlook.tomorrow_good:
+                return replace(decision, reason="soleil de demain attendu")
+            if expensive_now:
+                return replace(decision, reason="soleil hors d'atteinte : heures creuses attendues")
+            decision = replace(decision, reason="soleil hors d'atteinte aujourd'hui")
         if asleep:
             if self._recent(self._woken_at, at):
                 return decision

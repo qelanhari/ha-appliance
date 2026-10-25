@@ -21,20 +21,27 @@ from .const import (
     CONF_FORECAST_NEXT_HOUR,
     CONF_FORECAST_NOW,
     CONF_FORECAST_PEAK,
+    CONF_FORECAST_REMAINING,
+    CONF_FORECAST_TOMORROW,
     CONF_GOOD_SAVING,
     CONF_GRID,
     CONF_MIN_SAVING,
     CONF_PRICE,
+    CONF_RAIN,
     CONF_SOLAR,
+    CONF_TEMPO_COLOR,
+    CONF_TEMPO_HC,
     DOMAIN,
     entry_value,
 )
 from .logic.residual import to_watts
 from .logic.solar_start import Decision, Forecast, SolarStartConfig, SolarStarter
+from .logic.sun_outlook import ForecastNow, Outlook
 
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_SOLAR_START = f"{DOMAIN}_solar_start"
+SUN = "sun.sun"
 START_OPTION = "start"
 WAKE_OPTION = "wake_up"
 
@@ -87,6 +94,34 @@ class WasherSolarStart:
         except ValueError:
             return None
 
+    def _is_on(self, key: str) -> bool | None:
+        state = self._state(entry_value(self.entry, key))
+        return None if state is None else state.state == "on"
+
+    def _sky(self, forecast: Forecast | None) -> ForecastNow:
+        """Forecast.Solar's view of the rest of the day, and whether it rains."""
+        sun = self.hass.states.get(SUN)
+        setting = sun.attributes.get("next_setting") if sun else None
+        return ForecastNow(
+            now_w=forecast.now_w if forecast else self._float(CONF_FORECAST_NOW),
+            next_hour_kwh=self._float(CONF_FORECAST_NEXT_HOUR),
+            remaining_today_kwh=self._float(CONF_FORECAST_REMAINING),
+            tomorrow_kwh=self._float(CONF_FORECAST_TOMORROW),
+            peak_at=self._peak_at(),
+            sunset_at=dt_util.parse_datetime(setting) if setting else None,
+            raining=self._is_on(CONF_RAIN),
+        )
+
+    def _expensive_now(self) -> bool:
+        """A Rouge peak hour: a cycle on the grid waits for the off-peak."""
+        colour = self._state(entry_value(self.entry, CONF_TEMPO_COLOR))
+        is_red = colour is not None and colour.state.strip().lower() == "rouge"
+        return is_red and self._is_on(CONF_TEMPO_HC) is not True
+
+    @property
+    def outlook(self) -> Outlook | None:
+        return self._starter.outlook
+
     def _armed(self) -> bool | None:
         state = self._state(self.remote)
         return None if state is None else state.state == "on"
@@ -114,10 +149,12 @@ class WasherSolarStart:
         pv = self._watts(CONF_SOLAR)
         if pv is not None:
             self._starter.feed_pv(now, pv)
+        forecast = self._forecast()
         self.decision = self._starter.decide(
             now, armed=self._armed(), washer_running=washer_running,
             enabled=self.enabled, asleep=asleep, total=total, price=self._float(CONF_PRICE),
-            forecast=self._forecast(), peak_at=self._peak_at())
+            forecast=forecast, peak_at=self._peak_at(), sky=self._sky(forecast),
+            expensive_now=self._expensive_now())
         if self.decision.wake:
             await self._press(WAKE_OPTION)
         elif self.decision.start and await self._press(START_OPTION):

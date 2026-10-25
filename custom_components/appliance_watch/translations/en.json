@@ -40,7 +40,9 @@
           "step_max_w": "Maximum dishwasher step",
           "dishwasher_nominal_minutes": "Expected dishwasher cycle length",
           "dryer_off_delay_minutes": "Dryer stop delay",
-          "dryer_nominal_minutes": "Expected dryer cycle length"
+          "dryer_nominal_minutes": "Expected dryer cycle length",
+          "forecast_remaining_entity": "Solar forecast: production left today",
+          "rain_entity": "Raining now"
         },
         "data_description": {
           "measured_entities": "A sensor that drops out suspends detection instead of counting 0 W: a missing reading would inflate the residual by exactly that much.",
@@ -49,7 +51,9 @@
           "grid_entity": "Without it the washer never starts on its own. Armed for remote start, it starts when a cycle started now would cost at least the required saving less than the same cycle taken entirely from the grid.",
           "solar_min_saving_pct": "Accepted only when production is unsteady or the forecast peak is an hour behind. At 50 %, about 400 W of export held for half an hour.",
           "solar_entity": "Used to judge whether production is steady. Without it, production is deemed unsteady and the minimum saving is enough.",
-          "solar_good_saving_pct": "Starts as soon as it is reached. 90 %: the heating is covered by the sun."
+          "solar_good_saving_pct": "Starts as soon as it is reached. 90 %: the heating is covered by the sun.",
+          "forecast_remaining_entity": "With the panels' real output, it tells whether the sun can still come: if not, the washer stops waiting.",
+          "rain_entity": "Stands in for the panels at dawn and dusk: in the rain they give about 22 % of the forecast."
         }
       },
       "routeur": {

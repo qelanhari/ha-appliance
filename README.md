@@ -185,16 +185,17 @@ the same grid meter and claimed the same surplus. One smoothed grid
 
 1. **Machines a human started or armed** (dishwasher, washer, dryer), until
    their last heating. The heating power they still owe, minus what the meter
-   already shows of it, is reserved against the heater's start and the pump's
-   step-ups. The washer's heating is over from the rinse on (ThinQ stage); the
+   already shows of it, is reserved against the heater's start — the one load
+   that cannot be stopped for two hours. The washer's heating is over from the rinse on (ThinQ stage); the
    dishwasher's after its usual number of heats; the dryer heats to the end.
    A washer armed for a solar start owes its 2.1 kW heating while it waits.
    The reserve fades over a cycle's last ten minutes.
 2. **Water heater**: sees the real meter, plus what the pump borrowed above v1.
    A contactor already closed stays closed: two hours are committed.
-3. **Pool pump**: sees the meter plus the heater's claim and the reserve. It
-   keeps its v1 baseline and steps down at once, without its 5-minute dwell,
-   when a load starts.
+3. **Pool pump**: sees the meter plus the heater's claim. It stops in seconds,
+   so it may use the sun while a machine waits or pauses between heats; while
+   a machine still has to heat, or the heater starts, it steps down at once,
+   without its 5-minute dwell.
 
 - **Water heater**: the `dhwp_smart` brain (v0.8.0) with the router's rules:
   Tempo Rouge peak never starts a cycle; at the night checkpoints, below 42 °C
@@ -211,6 +212,24 @@ Configured in the second Options step. It **observes only** until the
 « Vitesse piscine voulue » sensors show what it would do, with the reason.
 Turn `dhwp_smart` and `pool_pump` off before turning it on. On first start
 it takes over the weekday hot-water habits `dhwp_smart` has learned.
+
+### Not waiting for a sun that will not come
+
+The armed washer reads the rest of the day: Forecast.Solar's curve (remaining
+energy, peak time, next hour, sunset), scaled by what the panels really
+produce against the forecast. That ratio is the house's weather station:
+dry, it ran at a median 1.19 over 30 days; in the rain (« Pluie en cours »),
+0.22, which stands in when the panels cannot be compared (dawn, dusk). The
+wet-rain sensor is not used: it stays wet after the shower.
+
+When the best production still to come, less what the house draws, cannot
+reach the lower bar (the held export that covers half the cycle), for a whole
+30-minute window, the washer stops waiting: it starts, or waits for the
+off-peak hours on a Rouge peak, or waits for tomorrow if armed once the day's
+production is over and tomorrow is forecast at 16 kWh or more. Before the
+peak, without the remaining energy and the sunset, it says nothing and waits.
+On 3 Oct (sun never above 35 % of the cycle) it now starts at 14:30 instead of
+never.
 
 ### Dishwasher stages
 

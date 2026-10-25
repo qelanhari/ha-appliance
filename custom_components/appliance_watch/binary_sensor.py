@@ -81,6 +81,7 @@ class WaitingForSunBinarySensor(ApplianceEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, object]:
         decision = self.coordinator.solar.decision
         estimate = decision.estimate
+        sky = self.coordinator.solar.outlook
         return {
             "economie_requise_pct": (round(decision.required * 100)
                                      if decision.required is not None else None),
@@ -89,4 +90,9 @@ class WaitingForSunBinarySensor(ApplianceEntity, BinarySensorEntity):
             "economie_estimee_pct": round(estimate.saving * 100) if estimate else None,
             "cout_estime_eur": estimate.cost_eur if estimate else None,
             "cout_reseau_eur": estimate.grid_cost_eur if estimate else None,
+            # The sky as the panels see it, against the forecast.
+            "ciel_vs_prevision": (round(sky.ratio, 2)
+                                  if sky and sky.ratio is not None else None),
+            "meilleure_production_restante_w": (round(sky.best_pv_w)
+                                                if sky and sky.best_pv_w is not None else None),
         }

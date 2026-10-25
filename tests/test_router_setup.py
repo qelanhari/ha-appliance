@@ -264,3 +264,20 @@ async def test_an_armed_washer_owes_its_heating_before_the_heater(hass, noon):
 
     assert router.allocation.appliance_reserve_w == pytest.approx(2109.0)
     assert not [call for call in turn_on if call.data["entity_id"] == CONTACTOR]
+
+
+async def test_the_pump_may_run_while_an_armed_washer_waits(hass, noon):
+    """It stops in seconds: waiting for the washer is the heater's job, not its."""
+    thinq_washer(hass)
+    washer(hass, "initial")
+    hass.states.async_set(WASHER_REMOTE, "on")
+    sunny_noon(hass, export_w=1500)
+    hass.states.async_set(MIDDLE, "54")
+    hass.states.async_set(TOP, "54.5")
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    await drive(hass, entry)
+    await run(hass, noon, minutes=2)
+
+    assert any(call.data["entity_id"] == SPEED and call.data["value"] > 1
+               for call in set_value)

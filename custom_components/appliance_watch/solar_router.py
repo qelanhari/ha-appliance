@@ -56,7 +56,7 @@ from .logic.loads import pool as pool_load
 from .logic.loads import water_heater as water_load
 from .logic.pattern import expected_kwh_for_day
 from .logic.residual import to_watts
-from .logic.router import Allocation, RunningAppliance, route
+from .logic.router import Allocation, RunningAppliance, has_priority, route
 from .logic.router_state import (
     CONTACTOR_DWELL_S,
     PUMP_DWELL_S,
@@ -106,7 +106,6 @@ class SolarRouter:
         self.memory = RouterMemory()
         self.allocation: Allocation | None = None
         self.snapshot: Snapshot | None = None
-        self._running: set[str] = set()
         # "name: watts" per cycle reserved on the last tick, for display.
         self.running_reserves: list[str] = []
 
@@ -222,12 +221,11 @@ class SolarRouter:
         self.allocation = route(smoothed, water, self.water_thresholds(),
                                 pool, self.pool_thresholds(), running)
         self.memory.pool.season = self.allocation.pool.season
-        # A load that just appeared — the heater's claim, a cycle someone
-        # started — is surplus the pump must hand back now, not in 5 minutes.
         self.running_reserves = [f"{item.name}: {item.reserve_w:.0f} W" for item in running]
-        started = {item.name for item in running}
-        make_way = self.allocation.claimed_by_water_w > 0 or bool(started - self._running)
-        self._running = started
+        # The heater's claim, or a machine still to heat: the pump hands its
+        # surplus back now, not in 5 minutes. Its dwell is for clouds.
+        make_way = (self.allocation.claimed_by_water_w > 0
+                    or any(has_priority(item) for item in running))
         if self.memory.piloting:
             await self._drive_water(now, water, self.allocation.water)
             if powered:

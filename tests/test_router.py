@@ -20,6 +20,7 @@ from logic.router import (
     Allocation,
     RunningAppliance,
     appliance_reserve_w,
+    has_priority,
     heating_done,
     pool_yield_w,
     route,
@@ -148,18 +149,25 @@ def test_it_does_not_break_a_cycle_already_under_way(
     assert allocation.water.signal_switch_on is True
 
 
-def test_the_pump_does_not_step_up_into_a_machine_s_heating(
+def test_the_pump_may_use_the_sun_while_a_machine_waits_or_pauses(
     base_inputs, router_thr, pool_inputs, pool_thr
 ):
+    """It stops in seconds: it is not held back, it makes way when one heats."""
     grid = -1500.0
     water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=52.0)
     pool = replace(pool_inputs, water_temp_c=26.0)
-    free = allocate(grid, water, router_thr, pool, pool_thr)
     busy = allocate(grid, water, router_thr, pool, pool_thr,
-                    [RunningAppliance("lave_vaisselle")])
+                    [RunningAppliance("lave_vaisselle"),
+                     RunningAppliance("lave_linge", waiting=True)])
+    assert busy.pool.target_speed >= 2
 
-    assert free.pool.target_speed >= 2
-    assert busy.pool.target_speed == 1
+
+@pytest.mark.parametrize(("machine", "priority"), [
+    (RunningAppliance("lave_vaisselle"), True),
+    (RunningAppliance("lave_vaisselle", heating_done=True), False),
+    (RunningAppliance("lave_linge", waiting=True), False)])
+def test_only_a_machine_under_way_and_still_to_heat_has_priority(machine, priority):
+    assert has_priority(machine) is priority
 
 
 def test_what_is_already_on_the_meter_is_not_reserved_twice():
