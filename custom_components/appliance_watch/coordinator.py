@@ -62,7 +62,7 @@ from .logic.fingerprints import (
     record,
 )
 from .logic.residual import Reading, residual_watts, to_watts
-from .logic.router import RunningAppliance
+from .logic.router import RunningAppliance, heating_done
 from .logic.router_state import mean_draw_w
 from .logic.washer import WasherFollower, WasherReading
 from .solar import WasherSolarStart
@@ -332,15 +332,22 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         await self.router.process(now, self._running_appliances(now))
 
     def _running_appliances(self, now: datetime) -> list[RunningAppliance]:
-        """Cycles a human started: surplus the router must not promise away."""
-        return [RunningAppliance(
-                    name=watcher,
-                    mean_draw_w=mean_draw_w(state.fingerprints.get(state.appliance)),
-                    elapsed_min=((now - state.started_at).total_seconds() / 60
-                                 if state.started_at else None),
-                    remaining_min=state.remaining)
-                for watcher, state in self.states.items()
-                if state.phase is Phase.RUNNING]
+        """Machines that come before the heater and the pump until their last heating."""
+        out = [RunningAppliance(
+                   name=watcher,
+                   mean_draw_w=mean_draw_w(state.fingerprints.get(state.appliance)),
+                   remaining_min=state.remaining,
+                   heating_done=heating_done(
+                       watcher, stage=state.running_stage, heats=state.heats,
+                       expected_heats=state.expected_heats,
+                       heating_now=watcher == DISHWASHER and self._dishwasher.heating),
+                   drawing_w=state.power_w)
+               for watcher, state in self.states.items()
+               if state.phase is Phase.RUNNING]
+        if self.states[WASHER].phase is not Phase.RUNNING and self.solar.decision.waiting:
+            # Armed for the sun: its heating is owed before anyone else's.
+            out.append(RunningAppliance(name=WASHER, waiting=True))
+        return out
 
     def _dishwasher_events(self, now: datetime,
                            tick: bool) -> list[tuple[str, Transition]]:

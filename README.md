@@ -177,21 +177,24 @@ Armed, the machine falls asleep after about twelve minutes and would not take
 first, and started as soon as it reports itself awake. Every start fires
 `appliance_watch_solar_start` with its reason.
 
-### Solar router — water heater, then pool pump
+### Solar router — machines, then water heater, then pool pump
 
 Replaces the `dhwp_smart` and `pool_pump` integrations, which each smoothed
 the same grid meter and claimed the same surplus. One smoothed grid
-(τ ≈ 2.2 min), handed down in priority order: the water heater sees the real
-meter, the pump sees it plus what the heater just claimed. Cycles a human
-started (dishwasher, washer, dryer) reserve their learned mean draw, but only
-against starting the heater, whose contactor commits two hours. The reserve
-follows where the cycle stands: the washer's measured profile (2.1 kW of
-heating in its first twelve minutes, then 90 W), and a fade over the last ten
-minutes of any cycle, so the heater can start as a machine finishes.
+(τ ≈ 2.2 min), handed down in priority order:
 
-The pump only borrows the surplus above v1: in automatic mode that share is
-counted as available for the heater and for the armed washer, and the pump
-steps down at once, without its 5-minute dwell, when a load starts.
+1. **Machines a human started or armed** (dishwasher, washer, dryer), until
+   their last heating. The heating power they still owe, minus what the meter
+   already shows of it, is reserved against the heater's start and the pump's
+   step-ups. The washer's heating is over from the rinse on (ThinQ stage); the
+   dishwasher's after its usual number of heats; the dryer heats to the end.
+   A washer armed for a solar start owes its 2.1 kW heating while it waits.
+   The reserve fades over a cycle's last ten minutes.
+2. **Water heater**: sees the real meter, plus what the pump borrowed above v1.
+   A contactor already closed stays closed: two hours are committed.
+3. **Pool pump**: sees the meter plus the heater's claim and the reserve. It
+   keeps its v1 baseline and steps down at once, without its 5-minute dwell,
+   when a load starts.
 
 - **Water heater**: the `dhwp_smart` brain (v0.8.0) with the router's rules:
   Tempo Rouge peak never starts a cycle; at the night checkpoints, below 42 °C

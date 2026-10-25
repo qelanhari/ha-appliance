@@ -16,16 +16,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent
                        / "custom_components" / "appliance_watch"))
 
 from logic.router import (
-    DEFAULT_APPLIANCE_DRAW_W,
+    HEATING_W,
     Allocation,
     RunningAppliance,
     appliance_reserve_w,
+    heating_done,
     pool_yield_w,
-    remaining_mean_w,
     route,
     summary,
 )
-from logic.solar_start import WASHER_PROFILE
 
 # The module default is the 800 W nameplate; production injects the measured
 # 650 W draw, and every figure below is read against that.
@@ -102,68 +101,87 @@ def _minutes(n):
 
 
 # ---------------------------------------------------------------------------
-# Getting out of the way of a cycle a human started
+# Machines come first, until their last heating
 # ---------------------------------------------------------------------------
 
 
-def test_a_running_dishwasher_blocks_a_two_hour_commitment(
+def test_a_dishwasher_still_to_heat_blocks_a_two_hour_commitment(
     base_inputs, router_thr, pool_inputs, pool_thr
 ):
-    """1 100 W of surplus with a dishwasher mid-cycle is not 1 100 W of surplus.
-
-    Its heating phases will take most of it back, and the contactor cannot be
-    reopened for two hours.
-    """
+    """1 100 W of surplus with a dishwasher between heats is not 1 100 W of
+    surplus: its next 2 kW heating must find it free."""
     grid = -1100.0
     water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
                     energy_needed_kwh=2.0)
-    running = [RunningAppliance("lave_vaisselle", mean_draw_w=850.0)]
+    running = [RunningAppliance("lave_vaisselle")]
 
     without = allocate(grid, water, router_thr, pool_inputs, pool_thr)
     with_it = allocate(grid, water, router_thr, pool_inputs, pool_thr, running)
 
     assert without.water.signal_switch_on is True
     assert with_it.water.signal_switch_on is False
-    assert with_it.appliance_reserve_w == pytest.approx(850.0)
+    assert with_it.appliance_reserve_w == pytest.approx(HEATING_W["lave_vaisselle"])
+
+
+def test_past_its_last_heating_it_steps_aside(
+    base_inputs, router_thr, pool_inputs, pool_thr
+):
+    grid = -1100.0
+    water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
+                    energy_needed_kwh=2.0)
+    done = [RunningAppliance("lave_vaisselle", heating_done=True)]
+    allocation = allocate(grid, water, router_thr, pool_inputs, pool_thr, done)
+    assert allocation.water.signal_switch_on is True
 
 
 def test_it_does_not_break_a_cycle_already_under_way(
     base_inputs, router_thr, pool_inputs, pool_thr
 ):
-    """The surplus is gone either way, and the appliance cannot be stopped."""
+    """The contactor cannot be opened before two hours anyway."""
     grid = -900.0
     water = replace(base_inputs, grid_smooth_w=grid, heater_power_w=HEATER_W,
                     signal_currently_on=True,
                     signal_on_at=base_inputs.now - _minutes(30))
     allocation = allocate(grid, water, router_thr, pool_inputs, pool_thr,
-                          [RunningAppliance("lave_vaisselle", 850.0)])
+                          [RunningAppliance("lave_vaisselle")])
 
     assert allocation.water.signal_switch_on is True
 
 
-def test_the_pump_is_not_held_back_by_the_reserve(
+def test_the_pump_does_not_step_up_into_a_machine_s_heating(
     base_inputs, router_thr, pool_inputs, pool_thr
 ):
-    """It steps down in five minutes; reserving for it would waste real sun."""
     grid = -1500.0
     water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=52.0)
-    allocation = allocate(grid, water, router_thr,
-                          replace(pool_inputs, water_temp_c=26.0), pool_thr,
-                          [RunningAppliance("lave_vaisselle", 850.0)])
+    pool = replace(pool_inputs, water_temp_c=26.0)
+    free = allocate(grid, water, router_thr, pool, pool_thr)
+    busy = allocate(grid, water, router_thr, pool, pool_thr,
+                    [RunningAppliance("lave_vaisselle")])
 
-    assert allocation.grid_for_pool_w == pytest.approx(grid)
-    assert allocation.pool.target_speed >= 2
-
-
-def test_two_appliances_reserve_the_sum():
-    running = [RunningAppliance("lave_vaisselle", 850.0),
-               RunningAppliance("seche_linge", 1200.0)]
-    assert appliance_reserve_w(running) == pytest.approx(2050.0)
+    assert free.pool.target_speed >= 2
+    assert busy.pool.target_speed == 1
 
 
-def test_an_unlearned_appliance_falls_back_to_a_nominal_draw():
-    assert RunningAppliance("lave_vaisselle").reserve_w == \
-        DEFAULT_APPLIANCE_DRAW_W["lave_vaisselle"]
+def test_what_is_already_on_the_meter_is_not_reserved_twice():
+    heating = RunningAppliance("lave_vaisselle", drawing_w=1900.0)
+    assert heating.reserve_w == pytest.approx(80.0)
+
+
+def test_two_machines_reserve_the_sum():
+    running = [RunningAppliance("lave_vaisselle"), RunningAppliance("lave_linge")]
+    assert appliance_reserve_w(running) == pytest.approx(
+        HEATING_W["lave_vaisselle"] + HEATING_W["lave_linge"])
+
+
+def test_the_washer_owes_its_measured_heating():
+    assert RunningAppliance("lave_linge").reserve_w == pytest.approx(2109.0)
+
+
+def test_the_dryer_owes_its_learned_draw_to_the_end():
+    assert RunningAppliance("seche_linge", mean_draw_w=1850.0).reserve_w == 1850.0
+
+
+def test_an_unknown_machine_still_owes_something():
     assert RunningAppliance("inconnu").reserve_w > 0
 
 
@@ -171,45 +189,37 @@ def test_nothing_running_reserves_nothing():
     assert appliance_reserve_w([]) == 0.0
 
 
-# ---------------------------------------------------------------------------
-# Where the cycle stands: what is left of it, not what it was
-# ---------------------------------------------------------------------------
-
-
-def test_a_washer_just_started_reserves_its_whole_cycle_mean():
-    """317 Wh over 86 min: the heating weighs on the average, not 500 W."""
-    washer = RunningAppliance("lave_linge", elapsed_min=0.0)
-    assert washer.reserve_w == pytest.approx(317.6 * 60 / 84.8, rel=0.01)
-
-
-def test_a_washer_past_its_heating_reserves_only_the_tumbling():
-    washer = RunningAppliance("lave_linge", elapsed_min=15.0)
-    assert washer.reserve_w == pytest.approx(92.0)
-
-
-def test_the_profile_is_read_minute_by_minute():
-    assert remaining_mean_w(WASHER_PROFILE, 1000.0) is None
-
-
 def test_the_reserve_fades_over_the_last_minutes():
-    dishwasher = RunningAppliance("lave_vaisselle", 850.0, remaining_min=5.0)
-    assert dishwasher.reserve_w == pytest.approx(425.0)
+    dishwasher = RunningAppliance("lave_vaisselle", remaining_min=5.0)
+    assert dishwasher.reserve_w == pytest.approx(990.0)
 
 
 @pytest.mark.parametrize("left", [None, 0.0, -3.0, 30.0])
 def test_unknown_late_or_distant_ends_keep_the_whole_reserve(left):
-    assert RunningAppliance("lave_vaisselle", 850.0, remaining_min=left).reserve_w == 850.0
+    machine = RunningAppliance("lave_vaisselle", remaining_min=left)
+    assert machine.reserve_w == HEATING_W["lave_vaisselle"]
 
 
-def test_a_cycle_about_to_end_no_longer_blocks_the_heater(
-    base_inputs, router_thr, pool_inputs, pool_thr
-):
-    grid = -1100.0
-    water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
-                    energy_needed_kwh=2.0)
-    ending = [RunningAppliance("lave_vaisselle", 850.0, remaining_min=2.0)]
-    allocation = allocate(grid, water, router_thr, pool_inputs, pool_thr, ending)
-    assert allocation.water.signal_switch_on is True
+def test_an_armed_washer_does_not_fade():
+    assert RunningAppliance("lave_linge", waiting=True, remaining_min=2.0).reserve_w == 2109.0
+
+
+@pytest.mark.parametrize(("stage", "done"), [
+    ("lavage", False), ("detection", False), ("vapeur", False), (None, False),
+    ("rincage", True), ("essorage", True)])
+def test_the_washer_s_heating_ends_with_its_wash(stage, done):
+    assert heating_done("lave_linge", stage=stage) is done
+
+
+@pytest.mark.parametrize(("heats", "expected", "now", "done"), [
+    (2, 2, False, True), (2, 2, True, False), (1, 2, False, False), (5, None, False, False)])
+def test_the_dishwasher_s_last_heating_is_its_usual_count(heats, expected, now, done):
+    assert heating_done("lave_vaisselle", heats=heats, expected_heats=expected,
+                        heating_now=now) is done
+
+
+def test_the_dryer_heats_to_the_end():
+    assert heating_done("seche_linge") is False
 
 
 # ---------------------------------------------------------------------------
@@ -263,10 +273,10 @@ def test_the_pump_yields_its_draw_above_v1(pool_inputs, speed, watts):
 def test_the_summary_names_what_took_the_surplus(
     base_inputs, router_thr, pool_inputs, pool_thr
 ):
-    grid = -2500.0
+    grid = -3500.0
     water = replace(base_inputs, grid_smooth_w=grid, tank_middle_c=45.0,
                     energy_needed_kwh=2.0)
     line = summary(allocate(grid, water, router_thr,
                             replace(pool_inputs, water_temp_c=26.0), pool_thr,
-                            [RunningAppliance("lave_vaisselle", 850.0)]))
+                            [RunningAppliance("lave_vaisselle")]))
     assert "chauffe-eau" in line and "piscine" in line and "appareils" in line

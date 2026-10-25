@@ -23,6 +23,7 @@ from test_setup import (
     LAUNDRY,
     POOL,
     TOTAL,
+    WASHER_REMOTE,
     entity_id,
     power,
     setup_entry,
@@ -248,3 +249,18 @@ async def test_the_armed_washer_counts_on_what_the_pump_borrowed(hass, noon):
 
     held = coordinator.solar._starter.held_export_w(dt_util.utcnow())
     assert held == pytest.approx(300.0 + 340.0)
+
+
+async def test_an_armed_washer_owes_its_heating_before_the_heater(hass, noon):
+    thinq_washer(hass)
+    washer(hass, "initial")
+    hass.states.async_set(WASHER_REMOTE, "on")
+    sunny_noon(hass, export_w=1500)
+    turn_on, _, _ = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    await run(hass, noon, minutes=2)
+
+    assert router.allocation.appliance_reserve_w == pytest.approx(2109.0)
+    assert not [call for call in turn_on if call.data["entity_id"] == CONTACTOR]
