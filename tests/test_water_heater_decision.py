@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent
 
 import pytest
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from logic.cost import CycleAccumulator  # noqa: E402
 from logic.loads.water_heater import (  # noqa: E402
@@ -24,6 +24,7 @@ from logic.loads.water_heater import (  # noqa: E402
     MODE_HC_ONLY,
     MODE_OFF,
     MODE_SOLAR_ONLY,
+    abundant_surplus_for_boost,
     decide,
 )
 
@@ -63,7 +64,8 @@ class TestManual:
         # Surplus must exceed heater_W + safety + boost_extra (200+1000=1200).
         # Heater off → delta = 800. Need grid + 800 < -1200 → grid < -2000.
         d = decide(
-            replace(base_inputs, mode=MODE_SOLAR_ONLY, grid_smooth_w=-2500.0), thr
+            replace(base_inputs, mode=MODE_SOLAR_ONLY, grid_smooth_w=-2500.0,
+                    abundant_surplus_minutes=15.0), thr
         )
         assert d.signal_switch_on is True
         assert d.boost_mode_on is True
@@ -141,22 +143,6 @@ class TestSignalHold:
         )
         assert d.signal_switch_on is False
 
-    def test_hold_does_not_prevent_hard_floor(self, base_inputs, thr):
-        # Hard floor breach takes priority before the hold check (and the
-        # boost flag stays off since hard floor is a safety, not a boost).
-        morning = datetime(2026, 6, 16, 5, 0, 0, tzinfo=timezone.utc)
-        d = decide(
-            replace(
-                base_inputs,
-                now=morning,
-                tank_middle_c=43.0,   # below the 44 °C floor
-                signal_currently_on=True,
-                signal_on_at=morning - timedelta(minutes=30),
-            ),
-            thr,
-        )
-        assert d.action == "hard_floor"
-
     def test_during_hold_boost_is_frozen(self, base_inputs, thr):
         """Mid-cycle the boost flag must NOT change, regardless of surplus.
         Toggling boost sends `number.set_value` to the Atlantic and thrashes
@@ -168,7 +154,7 @@ class TestSignalHold:
         )
         # Boost was OFF when cycle started → stays OFF even with huge surplus.
         d_off_to_high = decide(
-            replace(base_inputs, grid_smooth_w=-2500.0,
+            replace(base_inputs, grid_smooth_w=-2500.0, abundant_surplus_minutes=15.0,
                     boost_currently_on=False, **in_hold),
             thr,
         )
@@ -190,6 +176,7 @@ class TestSignalHold:
             replace(base_inputs,
                     signal_currently_on=False,        # last observed state
                     grid_smooth_w=-2500.0,            # huge surplus
+                    abundant_surplus_minutes=15.0,    # held long enough
                     is_hc=False,                       # HP solar path
                     forecast_today_kwh=15.0, energy_needed_kwh=3.0),
             thr,
@@ -417,33 +404,67 @@ class TestSignalHold:
 
 
 class TestHardFloor:
-    # ROUTEUR: the floor moved from 48 °C to 44 °C, so these cases breach it
-    # at 43 °C where they used to at 45 °C. The intent is unchanged — what
-    # moved is where "too cold to argue about" sits. See the Thresholds
-    # comment: 48 °C was chosen at 01:00 to survive six hours of drift, and
-    # the same comfort line seen from 04:00 is 44 °C.
-    def test_breach_in_morning_forces_on(self, base_inputs, thr):
-        morning = datetime(2026, 6, 16, 5, 0, 0, tzinfo=timezone.utc)
+    """The morning floor is enforced inside HC only (03:30 projection);
+    auto mode never starts a cycle on HP grid."""
+
+    @staticmethod
+    def _at(base, hour, minute, **kw):
+        return replace(base, now=base.now.replace(hour=hour, minute=minute), **kw)
+
+    def test_below_floor_after_hc_does_not_heat_on_grid(self, base_inputs, thr):
+        """2026-10-08 06:06: HC over, middle 47.9 °C, no sun → must wait."""
         d = decide(
-            replace(base_inputs, now=morning, tank_middle_c=43.0),
+            self._at(base_inputs, 6, 6, is_hc=False, tank_middle_c=47.9,
+                     grid_smooth_w=300.0, energy_needed_kwh=0.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_03h30_projected_below_floor_fires(self, base_inputs, thr):
+        """2026-10-08 03:30: middle 49.0 °C, top-based budget 0 kWh →
+        49.0 − 2.5 h × 0.5 °C/h = 47.75 °C at 06:00 < 48 °C.
+        ROUTEUR: on an October day too weak to refill the middle."""
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=49.0,
+                     energy_needed_kwh=0.0, forecast_tomorrow_kwh=8.0),
+            thr,
+        )
+        assert (d.signal_switch_on, d.action) == (True, "hard_floor")
+
+    def test_03h30_zero_budget_still_counts_the_middle(self, base_inputs, thr):
+        """Budget 0 must not make a 13 kWh day 'enough': 1 kWh of surplus
+        cannot refill 5 °C of middle (1.6 kWh × 1.5)."""
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=49.0,
+                     energy_needed_kwh=0.0, forecast_tomorrow_kwh=13.0),
             thr,
         )
         assert d.signal_switch_on is True
-        assert d.action == "hard_floor"
-        assert d.boost_mode_on is False   # safety only, no boost
 
-    def test_breach_outside_morning_no_override(self, base_inputs, thr):
-        d = decide(replace(base_inputs, tank_middle_c=43.0), thr)
-        assert d.action != "hard_floor"
+    def test_03h30_zero_budget_sunny_day_waits(self, base_inputs, thr):
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=49.0,
+                     energy_needed_kwh=0.0, forecast_tomorrow_kwh=25.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_03h30_projected_above_floor_does_not_fire(self, base_inputs, thr):
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=49.5,
+                     energy_needed_kwh=0.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
 
     def test_missing_tank_middle_does_not_breach(self, base_inputs, thr):
         """Sensor unavailable (None) must NOT be treated as 0 °C — was bug B2."""
-        morning = datetime(2026, 6, 16, 5, 0, 0, tzinfo=timezone.utc)
         d = decide(
-            replace(base_inputs, now=morning, tank_middle_c=None),
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=None,
+                     energy_needed_kwh=0.0),
             thr,
         )
-        assert d.action != "hard_floor"
+        assert d.signal_switch_on is False
 
 
 # ----------------------------------------------------------------------------
@@ -567,12 +588,10 @@ class TestHcWindow:
         assert d.signal_switch_on is False
 
     def test_05h00_after_last_chance_does_not_fire(self, base_inputs, thr):
-        # Too late — a 2h cycle would push into HP.
-        # Mid above hard-floor (48 °C) so the morning-window hard-floor
-        # safety net (branch 2) doesn't pre-empt this check.
+        # Too late — a 2h cycle would push into HP, even below the floor.
         d = decide(
             self._at(base_inputs, 5, 0,
-                     tank_middle_c=49.0, energy_needed_kwh=2.0),
+                     tank_middle_c=46.0, energy_needed_kwh=2.0),
             thr,
         )
         assert d.signal_switch_on is False
@@ -697,6 +716,33 @@ class TestHcWindow:
         assert d.signal_switch_on is True
         assert "winter" in d.reason.lower() or "outdoor" in d.reason.lower()
 
+    def test_01h00_below_floor_fires_with_zero_budget(self, base_inputs, thr):
+        # Top probe at target → budget 0, but the middle is below the floor.
+        d = decide(
+            self._at(base_inputs, 1, 0,
+                     tank_middle_c=47.0, energy_needed_kwh=0.0),
+            thr,
+        )
+        assert d.signal_switch_on is True
+
+    def test_01h00_cold_outdoor_needs_budget(self, base_inputs, thr):
+        d = decide(
+            self._at(base_inputs, 1, 0,
+                     tank_middle_c=50.0, energy_needed_kwh=0.0, outdoor_c=2.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_22h30_missing_middle_with_zero_budget_does_not_fire(
+        self, base_inputs, thr,
+    ):
+        d = decide(
+            self._at(base_inputs, 22, 30,
+                     tank_middle_c=None, energy_needed_kwh=0.0),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
     # --- 03:30 last chance ----------------------------------------------------
 
     def test_03h30_still_below_floor_fires_when_the_sun_cannot_be_relied_on(
@@ -717,7 +763,7 @@ class TestHcWindow:
     def test_03h30_tank_already_ok_does_not_fire(self, base_inputs, thr):
         d = decide(
             self._at(base_inputs, 3, 30,
-                     tank_middle_c=49.0, energy_needed_kwh=1.0),
+                     tank_middle_c=49.5, energy_needed_kwh=1.0),
             thr,
         )
         assert d.signal_switch_on is False
@@ -788,6 +834,7 @@ class TestHpSolar:
             replace(
                 base_inputs, is_hc=False, grid_smooth_w=-2500.0,
                 forecast_today_kwh=15.0, energy_needed_kwh=3.0,
+                abundant_surplus_minutes=15.0,
             ),
             thr,
         )
@@ -808,46 +855,61 @@ class TestHpSolar:
 
 
 # ---------------------------------------------------------------------------
-# ROUTEUR: the morning window, which is where the night correction was undone
+# ROUTEUR: the night correction must survive until HC ends
 # ---------------------------------------------------------------------------
 
 
 class TestMorningFloorAgainstTheNightCorrection:
-    """The hole a review found: everything the checkpoints declined at 01:00
-    was heated anyway at 04:00, by a floor that never looked at the sky."""
+    """Whatever 01:00 declined for the sun, 03:30 must decline too — unless
+    the projected tank falls under the comfort floor."""
 
     def _at(self, base_inputs, hour, minute, **kw):
         return replace(base_inputs, now=base_inputs.now.replace(
-            hour=hour, minute=minute), is_hc=True, **kw)
+            hour=hour, minute=minute), **kw)
 
-    def test_a_tank_left_for_the_sun_is_not_reheated_at_04h00(
+    def test_a_tank_left_for_the_sun_is_not_reheated_at_03h30(
         self, base_inputs, thr
     ):
-        """46 °C with 25 kWh forecast: declined at 01:00, and it must stay
-        declined — otherwise the cycle simply moves three hours later and the
-        tank still arrives full at dawn."""
+        """46 °C → 44.75 °C at 06:00, 25 kWh forecast: below 48 °C but above
+        comfort, so the sun gets it."""
         d = decide(
-            self._at(base_inputs, 4, 0, tank_middle_c=46.0,
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=46.0,
                      forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
             thr,
         )
         assert d.signal_switch_on is False
 
-    def test_the_morning_floor_still_catches_a_cold_tank(self, base_inputs, thr):
-        """Below it the weather stops mattering. Three hours of drift at the
-        measured 0.4 °C/h leaves ~42.8 °C at the tap."""
+    def test_same_tank_without_sun_is_reheated(self, base_inputs, thr):
         d = decide(
-            self._at(base_inputs, 4, 0, tank_middle_c=43.0,
-                     forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=46.0,
+                     forecast_tomorrow_kwh=5.0, energy_needed_kwh=2.0),
+            thr,
+        )
+        assert (d.signal_switch_on, d.action) == (True, "hard_floor")
+
+    def test_tomorrow_rouge_is_reheated_despite_sun(self, base_inputs, thr):
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=46.0,
+                     forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0,
+                     tempo_next_color="Rouge"),
             thr,
         )
         assert d.signal_switch_on is True
-        assert d.action == "hard_floor"
 
-    def test_it_holds_across_the_whole_window(self, base_inputs, thr):
-        for hour, minute in ((4, 0), (5, 0), (6, 15), (6, 59)):
+    def test_the_comfort_floor_ignores_the_sky(self, base_inputs, thr):
+        """43 °C → 41.75 °C at 06:00 < 42 °C: heat whatever the forecast."""
+        d = decide(
+            self._at(base_inputs, 3, 30, is_hc=True, tank_middle_c=43.0,
+                     forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
+            thr,
+        )
+        assert "confort" in d.reason
+
+    def test_never_on_hp_grid_in_the_morning(self, base_inputs, thr):
+        for hour, minute in ((6, 5), (6, 15), (6, 59)):
             d = decide(
-                self._at(base_inputs, hour, minute, tank_middle_c=46.0,
+                self._at(base_inputs, hour, minute, is_hc=False,
+                         tank_middle_c=43.0, grid_smooth_w=300.0,
                          forecast_tomorrow_kwh=25.0, energy_needed_kwh=2.0),
                 thr,
             )
@@ -886,3 +948,71 @@ class TestTheSurplusModelStaysWhereItBelongs:
         )
         assert d.signal_switch_on is True
         assert "won't cover" in d.reason
+
+
+# ----------------------------------------------------------------------------
+# Daily solar boost (55 °C)
+# ----------------------------------------------------------------------------
+
+
+class TestDailyBoost:
+    """Steady abundant surplus → boost once a day while middle ≤ 54 °C;
+    again only if middle drops below 45 °C."""
+
+    @staticmethod
+    def _sunny(base, **kw):
+        return replace(
+            base, is_hc=False, grid_smooth_w=-2500.0,
+            abundant_surplus_minutes=15.0, energy_needed_kwh=0.0, **kw,
+        )
+
+    def test_full_tank_starts_boost_cycle(self, base_inputs, thr):
+        # 54 °C middle + idle is "full" for eco, but boost can still add 1 °C.
+        d = decide(self._sunny(base_inputs, tank_middle_c=54.0), thr)
+        assert (d.signal_switch_on, d.boost_mode_on) == (True, True)
+
+    def test_transient_surplus_does_not_boost(self, base_inputs, thr):
+        d = decide(
+            replace(self._sunny(base_inputs), abundant_surplus_minutes=5.0), thr,
+        )
+        assert d.boost_mode_on is False
+
+    def test_above_54_does_not_boost(self, base_inputs, thr):
+        d = decide(self._sunny(base_inputs, tank_middle_c=54.2), thr)
+        assert d.signal_switch_on is False
+
+    def test_second_boost_blocked_above_45(self, base_inputs, thr):
+        d = decide(self._sunny(base_inputs, tank_middle_c=50.0, boosts_today=1), thr)
+        assert (d.signal_switch_on, d.boost_mode_on) == (True, False)
+
+    def test_second_boost_allowed_below_45(self, base_inputs, thr):
+        d = decide(self._sunny(base_inputs, tank_middle_c=44.0, boosts_today=1), thr)
+        assert d.boost_mode_on is True
+
+    def test_boost_cycle_not_cut_before_55(self, base_inputs, thr):
+        # Appliance boosted, middle 54.2 °C, compressor not yet drawing.
+        d = decide(
+            self._sunny(base_inputs, tank_middle_c=54.2, boosts_today=1,
+                        boost_currently_on=True, signal_currently_on=True,
+                        signal_on_at=base_inputs.now - timedelta(minutes=2)),
+            thr,
+        )
+        assert d.signal_switch_on is True
+
+    def test_boost_cycle_released_at_55(self, base_inputs, thr):
+        d = decide(
+            self._sunny(base_inputs, tank_middle_c=54.8, boosts_today=1,
+                        boost_currently_on=True, signal_currently_on=True,
+                        signal_on_at=base_inputs.now - timedelta(minutes=90)),
+            thr,
+        )
+        assert d.signal_switch_on is False
+
+    def test_missing_middle_does_not_boost(self, base_inputs, thr):
+        d = decide(self._sunny(base_inputs, tank_middle_c=None), thr)
+        assert d.boost_mode_on is False
+
+    def test_abundant_surplus_threshold(self, thr):
+        # heater off: grid + 800 < -1200 ⇔ grid < -2000.
+        assert abundant_surplus_for_boost(-2100.0, 0.0, thr) is True
+        assert abundant_surplus_for_boost(-1900.0, 0.0, thr) is False
