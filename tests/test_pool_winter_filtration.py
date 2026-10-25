@@ -74,7 +74,7 @@ def test_minutes_to_the_end_of_the_window_cross_midnight():
 
 def test_filtration_counts_only_while_the_pump_runs():
     memory, start = PoolMemory(), datetime(2026, 12, 10, 12, 0, tzinfo=TZ)
-    for minute in range(0, 61):
+    for minute in range(61):
         memory.count_filtration(start + timedelta(minutes=minute), running=minute < 30)
     assert memory.filtered_min == pytest.approx(30.0)
 
