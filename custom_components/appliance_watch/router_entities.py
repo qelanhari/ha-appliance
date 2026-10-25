@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.components.select import SelectEntity
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -214,6 +215,43 @@ class PoolModeSelect(RouterEntity, SelectEntity):
         self.async_write_ha_state()
 
 
+SPEED_TO_MODE: dict[int, str] = {speed: mode for mode, speed
+                                 in pool_load.MANUAL_TO_SPEED.items()}
+
+
+class PoolSpeedSlider(RouterEntity, NumberEntity):
+    """0-3 on a slider: moving it pins that speed as the pool's mode.
+
+    In an automatic mode it shows the speed the router wants, so the slider
+    is not stuck at 0; the « Mode de la piscine » select brings back auto.
+    """
+
+    _attr_icon = "mdi:pool"
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_min_value = 0
+    _attr_native_max_value = 3
+    _attr_native_step = 1
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, "vitesse_manuelle_piscine")
+
+    @property
+    def native_value(self) -> int | None:
+        mode = self.router.memory.pool.mode
+        if mode in pool_load.MANUAL_TO_SPEED:
+            return pool_load.MANUAL_TO_SPEED[mode]
+        allocation = self.router.allocation
+        return allocation.pool.target_speed if allocation else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"mode": self.router.memory.pool.mode}
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.router.async_set_pool_mode(SPEED_TO_MODE[int(round(value))])
+        await self.coordinator.async_request_refresh()
+
+
 class ForceHeatButton(RouterEntity, ButtonEntity):
     """A day's boost of the Atlantic, at once; it ends on its own."""
 
@@ -237,6 +275,12 @@ class LaunchSkimButton(RouterEntity, ButtonEntity):
     async def async_press(self) -> None:
         await self.router.async_launch_skim()
         await self.coordinator.async_request_refresh()
+
+
+def router_numbers(coordinator: ApplianceCoordinator) -> list[NumberEntity]:
+    if not coordinator.router.configured:
+        return []
+    return [PoolSpeedSlider(coordinator)]
 
 
 def router_buttons(coordinator: ApplianceCoordinator) -> list[ButtonEntity]:

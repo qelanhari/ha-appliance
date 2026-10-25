@@ -243,6 +243,11 @@
           "summer": "Été"
         }
       }
+    },
+    "number": {
+      "vitesse_manuelle_piscine": {
+        "name": "Vitesse manuelle de la piscine"
+      }
     }
   }
 }

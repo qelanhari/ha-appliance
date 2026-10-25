@@ -9,8 +9,8 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import ApplianceCoordinator
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.SELECT,
-                             Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.BUTTON, Platform.NUMBER,
+                             Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

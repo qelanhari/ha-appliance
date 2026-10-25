@@ -407,3 +407,20 @@ async def test_a_skim_launched_by_hand_goes_straight_to_v3(hass, noon):
         "entity_id": entity_id(hass, entry, "routeur_lancer_ecumage")}, blocking=True)
     await hass.async_block_till_done()
     assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED][:1] == [3.0]
+
+
+async def test_the_slider_pins_a_speed_and_shows_the_wanted_one_in_auto(hass, noon):
+    sunny_noon(hass, export_w=2500)
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    router = hass.data[DOMAIN][entry.entry_id].router
+    await drive(hass, entry)
+    await run(hass, noon, minutes=1)
+    slider = entity_id(hass, entry, "routeur_vitesse_manuelle_piscine")
+    assert float(hass.states.get(slider).state) == router.allocation.pool.target_speed
+
+    # The number service is mocked here to watch the pump: reach the slider itself.
+    await hass.data["entity_components"]["number"].get_entity(slider).async_set_native_value(0)
+    await hass.async_block_till_done()
+    assert router.memory.pool.mode == "off"
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED][-1] == 0.0
