@@ -222,9 +222,11 @@ class SolarRouter:
         self._learn_sky(local, grid, int(speed), curve)
         self.sky = self.memory.sky.sky(curve) if curve else None
         water = self._water_inputs(local, grid, smoothed)
-        pool = self._pool_inputs(now, smoothed, pool_load._safe_speed(int(speed)))
-        self._observe(now, water, pool)
+        pump_speed = pool_load._safe_speed(int(speed))
         powered = self._is_on(CONF_POOL_SWITCH) is not False
+        filtered = self.memory.pool.count_filtration(local, running=powered and pump_speed > 0)
+        pool = self._pool_inputs(local, smoothed, pump_speed, filtered)
+        self._observe(now, water, pool)
         self.snapshot = Snapshot(water=water, pool=pool, pool_powered=powered)
         self.allocation = route(smoothed, water, self.water_thresholds(),
                                 pool, self.pool_thresholds(), running)
@@ -316,7 +318,8 @@ class SolarRouter:
             abundant_surplus_minutes=memory.abundant_minutes(local, abundant),
         )
 
-    def _pool_inputs(self, now: datetime, smoothed: float, speed: int) -> pool_load.Inputs:
+    def _pool_inputs(self, now: datetime, smoothed: float, speed: int,
+                     filtered_min: float) -> pool_load.Inputs:
         memory = self.memory.pool
         sun = self.hass.states.get(SUN)
         return pool_load.Inputs(
@@ -328,6 +331,7 @@ class SolarRouter:
             v3_last_ended_at=memory.v3_last_ended_at,
             tempo_color=self._text(CONF_TEMPO_COLOR),
             is_hc=self._is_on(CONF_TEMPO_HC) is True, season=memory.season,
+            filtered_today_min=filtered_min,
         )
 
     def _observe(self, now: datetime, water: water_load.Inputs,

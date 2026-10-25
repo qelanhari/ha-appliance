@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .cost import CycleAccumulator, accumulate
@@ -144,6 +144,27 @@ class PoolMemory:
     v3_last_ended_at: datetime | None = None
     last_speed_change_at: datetime | None = None
     season: str | None = None
+    # Filtration since the filtration day began at 06:00, local time.
+    filtration_day: date | None = None
+    filtered_min: float = 0.0
+    filtered_at: datetime | None = None
+    was_running: bool = False
+
+    def count_filtration(self, local: datetime, running: bool,
+                         day_starts: int = 6) -> float:
+        """Count the minutes since the last tick if the pump was running then.
+
+        A reading holds until the next one: the interval belongs to the state
+        seen at its start. Resets when the filtration day begins, at 06:00.
+        """
+        day = (local - timedelta(hours=day_starts)).date()
+        if day != self.filtration_day:
+            self.filtration_day, self.filtered_min = day, 0.0
+        elif self.was_running and self.filtered_at is not None:
+            elapsed = (local - self.filtered_at).total_seconds() / 60
+            self.filtered_min += min(max(elapsed, 0.0), 10.0)
+        self.filtered_at, self.was_running = local, running
+        return self.filtered_min
 
     def speed_changed(self, now: datetime, decision: pool_load.Decision) -> None:
         if decision.enter_v3:
@@ -241,6 +262,8 @@ def as_dict(memory: RouterMemory) -> dict[str, Any]:
             "v3_last_ended_at": _iso(pool.v3_last_ended_at),
             "last_speed_change_at": _iso(pool.last_speed_change_at),
             "season": pool.season,
+            "filtration_day": _iso(pool.filtration_day),
+            "filtered_min": round(pool.filtered_min, 1),
         },
         "sky": memory_as_dict(memory.sky),
     }
@@ -284,6 +307,8 @@ def from_dict(data: dict[str, Any] | None) -> RouterMemory:
             v3_last_ended_at=_when(pool.get("v3_last_ended_at")),
             last_speed_change_at=_when(pool.get("last_speed_change_at")),
             season=pool.get("season"),
+            filtration_day=_day(pool.get("filtration_day")),
+            filtered_min=float(pool.get("filtered_min", 0.0)),
         ),
         sky=memory_from_dict(data.get("sky")),
     )

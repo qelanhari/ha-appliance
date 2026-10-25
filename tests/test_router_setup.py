@@ -333,3 +333,22 @@ async def test_without_a_curve_the_totals_still_decide(hass, noon):
     decision = hass.states.get(entity_id(hass, entry, "routeur_chauffe_eau_decision"))
     assert decision.attributes["soleil_utilisable_demain_kwh"] is None
     assert decision.state == "heat_solar"
+
+
+async def test_a_sunless_winter_day_is_topped_up_at_the_end_of_the_night(hass, freezer):
+    """No sun all day: two hours at off-peak rates, ending at 06:00."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to("2026-12-10 02:50:00+00:00")   # 03:50 in Paris
+    sunny_noon(hass, export_w=-300)
+    hass.states.async_set(SPEED, "0")
+    hass.states.async_set(POOL_WATER, "12")
+    hass.states.async_set(HC, "on")
+    hass.states.async_set("sun.sun", "below_horizon")
+    _, _, set_value = await mocked(hass)
+    entry = await setup_entry(hass, ROUTER)
+    await drive(hass, entry)
+    await run(hass, freezer, minutes=5)
+    assert not [c for c in set_value if c.data["entity_id"] == SPEED]
+
+    await run(hass, freezer, minutes=10)                # past 04:00
+    assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED] == [1.0]

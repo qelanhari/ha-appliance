@@ -76,6 +76,7 @@ def _pool_attributes(router: SolarRouter) -> dict[str, Any]:
         "relais_alimente": snapshot.pool_powered,
         "reseau_vu_w": round(allocation.grid_for_pool_w),
         "cede_au_chauffe_eau_w": round(allocation.pool_yield_w),
+        "filtration_du_jour_min": round(router.memory.pool.filtered_min),
         "pilotage": router.memory.piloting,
     }
 

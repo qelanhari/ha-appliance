@@ -18,7 +18,7 @@ Two corrections, both measured:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
 # Speed → expected mains draw, in Watts. Calibrated by the user for a
 # Hayward VSTD on an Antea VS box.
@@ -70,6 +70,9 @@ class Inputs:
     # ROUTEUR: the season decided last tick, persisted by the coordinator.
     # None on a cold start — the thresholds below then decide outright.
     season: str | None = None
+    # ROUTEUR: minutes filtered since the filtration day began (06:00, the end
+    # of the off-peak window), whatever the speed. ``now`` must be local time.
+    filtered_today_min: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,13 @@ class Thresholds:
     # hysteresis timer is needed beyond this gap.
     summer_water_c: float = 22.0
     winter_water_c: float = 20.0
+    # ROUTEUR: winter still filters this much a day. What the sun has not
+    # paid for is run at off-peak rates, at the *end* of the window: the
+    # price is the same all night, the coldest hour is just before dawn —
+    # moving water then guards the pipes against frost — and the pump stays
+    # quiet at bedtime.
+    winter_daily_minutes: float = 120.0
+    hc_end: time = time(6, 0)
 
 
 SEASON_SUMMER = "ete"
@@ -212,6 +222,27 @@ def decide(i: Inputs, thr: Thresholds) -> Decision:
     return replace(_decide_impl(i, thr, season), season=season)
 
 
+def minutes_to_hc_end(i: Inputs, thr: Thresholds) -> float:
+    """Minutes left until the off-peak window closes, in local time."""
+    end = i.now.replace(hour=thr.hc_end.hour, minute=thr.hc_end.minute,
+                        second=0, microsecond=0)
+    if end <= i.now:
+        end += timedelta(days=1)
+    return (end - i.now).total_seconds() / 60
+
+
+def winter_top_up_due(i: Inputs, thr: Thresholds) -> float | None:
+    """Minutes still owed, once it is time to run them before the window ends.
+
+    Started as late as possible, the top-up then ends with the window: the
+    owed minutes and the minutes left shrink together while it runs.
+    """
+    owed = thr.winter_daily_minutes - i.filtered_today_min
+    if not i.is_hc or owed <= 0:
+        return None
+    return owed if minutes_to_hc_end(i, thr) <= owed else None
+
+
 def _decide_impl(i: Inputs, thr: Thresholds, season: str) -> Decision:
     was_v3 = i.pump_speed == 3
     # ROUTEUR: on a Rouge peak hour the baseline speed stops being free —
@@ -221,6 +252,15 @@ def _decide_impl(i: Inputs, thr: Thresholds, season: str) -> Decision:
     # 1a. Winter: solar-only operation, capped at v1, force-off on Tempo Red.
     # ROUTEUR: reached by the water temperature too, not only by hand.
     if i.mode == MODE_WINTER or (i.mode == MODE_AUTO and season == SEASON_WINTER):
+        owed = winter_top_up_due(i, thr)
+        if owed is not None:
+            return Decision(
+                target_speed=1,
+                reason=f"hiver : complément de filtration en heures creuses "
+                       f"({owed:.0f} min sur {thr.winter_daily_minutes:.0f})",
+                enter_v3=False,
+                leave_v3=was_v3,
+            )
         if i.tempo_color == TEMPO_RED:
             return Decision(
                 target_speed=0,

@@ -203,7 +203,10 @@ the same grid meter and claimed the same surplus. One smoothed grid
   not guaranteed (or tomorrow is Rouge). Never heats on peak-hour grid.
 - **Pool pump**: the `pool_pump` brain; the season follows the water
   temperature, the warmth gate reads the water only, and the pump's relay
-  (Shelly 1PM) off means the speed is left alone.
+  (Shelly 1PM) off means the speed is left alone. Winter still filters two
+  hours a day (from 06:00 to 06:00): what the sun has not paid for runs at v1
+  at the end of the off-peak window, so as to finish at 06:00 — same price
+  all night, the coldest hour guarded against frost, no pump at bedtime.
 - **Rainwater pumps** are not routed: they pump when the water is there.
   They are ordinary consumption for the router.
 
