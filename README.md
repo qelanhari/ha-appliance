@@ -182,6 +182,24 @@ Armed, the machine falls asleep after about twelve minutes and would not take
 first, and started as soon as it reports itself awake. Every start fires
 `appliance_watch_solar_start` with its reason.
 
+Woken from that sleep, the washer takes ThinQ's "start" on its **default**
+programme: on 26 Oct 2026, armed on Quick 30 (20 °C, 800 rpm), it ran Cotton
+(40 °C, 1400 rpm, 189 min). When the HACS integration **SmartThinQ LGE
+Sensors** is installed, the start goes through its *Remote Start* button
+instead, which sends the programme it read when the machine was armed. It is
+used for that and nothing else — status and wake-up stay on ThinQ — and it is
+polled only when needed, never on its own clock:
+
+- 30 s after arming, while the machine is still awake: it remembers the
+  programme. Its button becoming available confirms it;
+- right before the start, once ThinQ has woken the machine;
+- on disarming: it forgets, so the next arming is read afresh.
+
+A machine whose programme was not remembered before it fell asleep — Home
+Assistant restarted in between, say — is **not started**: a poll after the
+sleep would read the default programme. The waiting sensor says
+`programme non mémorisé`.
+
 ### Solar router — machines, then water heater, then pool pump
 
 Replaces the `dhwp_smart` and `pool_pump` integrations, which each smoothed
@@ -317,6 +335,13 @@ For the solar start, also in *Options*: the **grid meter** (signed, negative
 is export — without it the feature is off), the **panels' meter**, the
 **current price** sensor and three **Forecast.Solar** sensors (power now,
 energy next hour, peak time today).
+
+To start the armed programme rather than the default one (see *Washer —
+started by the sun*), add **SmartThinQ LGE Sensors** (HACS), with a native LG
+account — not a Google or Apple login. Then, on its entry, turn **polling
+off** (*⋮ → System options*) and disable every entity but the washer's
+*Remote Start* button: Home Energy Pilot polls it when it needs to. Polling it
+under 300 s gets the account banned by LG for a day.
 
 Upgrading from 0.4: open *Options* once and pick the washer's status sensor —
 until then the dryer is not detected. The dryer's learned rhythm is carried

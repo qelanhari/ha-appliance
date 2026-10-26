@@ -43,6 +43,7 @@ WASHER_REMAINING = "sensor.lave_linge_remaining_time"
 WASHER_TOTAL = "sensor.lave_linge_total_time"
 WASHER_REMOTE = "binary_sensor.lave_linge_remote_start"
 WASHER_OPERATION = "select.lave_linge_operation"
+SMARTTHINQ_START = "button.lave_linge_remote_start"
 GRID = "sensor.reseau"
 SOLAR = "sensor.panneaux"
 PEAK = "sensor.pic_solaire"
@@ -70,6 +71,22 @@ def thinq_washer(hass) -> None:
             entity.split(".")[0], "lg_thinq", f"washer_{key}", config_entry=thinq,
             device_id=device.id, translation_key=key,
             suggested_object_id=entity.split(".")[1])
+
+
+def smartthinq_washer(hass) -> None:
+    """SmartThinQ's remote-start button, registered as that integration does."""
+    er.async_get(hass).async_get_or_create(
+        "button", "smartthinq_sensors", "WASHER:abc-remote_start-button",
+        suggested_object_id=SMARTTHINQ_START.split(".")[1])
+    # Never pressed: "unknown", and pressable.
+    hass.states.async_set(SMARTTHINQ_START, "unknown")
+
+
+async def mock_smartthinq(hass):
+    """Mock the poll and the press, after the button component is up."""
+    assert await async_setup_component(hass, "button", {})
+    return (async_mock_service(hass, "homeassistant", "update_entity"),
+            async_mock_service(hass, "button", "press"))
 
 
 def washer(hass, status: str, *, remaining_min: float | None = None,
@@ -395,3 +412,53 @@ async def test_without_a_grid_meter_there_is_no_solar_start(hass):
     power(hass, LAUNDRY, 2)
     entry = await setup_entry(hass)
     assert state_of(hass, entry, "lave_linge_attente_soleil") == "unavailable"
+
+
+async def test_smartthinq_starts_the_remembered_programme(hass, freezer):
+    smartthinq_washer(hass)
+    _, presses = await mock_smartthinq(hass)
+    await armed_in_the_sun(hass, freezer, export_w=1500)
+    assert [call.data["entity_id"] for call in presses] == [SMARTTHINQ_START]
+
+
+async def test_with_smartthinq_thinq_start_is_not_used(hass, freezer):
+    smartthinq_washer(hass)
+    await mock_smartthinq(hass)
+    _, start = await armed_in_the_sun(hass, freezer, export_w=1500)
+    assert start == []
+
+
+async def test_smartthinq_is_polled_to_remember_then_to_start(hass, freezer):
+    smartthinq_washer(hass)
+    polls, _ = await mock_smartthinq(hass)
+    await armed_in_the_sun(hass, freezer, export_w=1500)
+    assert [call.data["entity_id"] for call in polls] == [SMARTTHINQ_START] * 2
+
+
+async def test_a_washer_asleep_before_it_was_remembered_is_left_alone(hass, freezer):
+    """HA restarted during the sleep: SmartThinQ would read the default programme."""
+    smartthinq_washer(hass)
+    _, presses = await mock_smartthinq(hass)
+    thinq_washer(hass)
+    washer(hass, "sleep")
+    hass.states.async_set(WASHER_REMOTE, "on")
+    power(hass, LAUNDRY, 2)
+    power(hass, GRID, -1500)
+    wake = await mock_select_option(hass)
+    entry = await setup_entry(hass, DATA | {CONF_GRID: GRID})
+    for _ in range(62):
+        freezer.tick(timedelta(seconds=30))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert (wake, presses) == ([], [])
+    waiting = hass.states.get(entity_id(hass, entry, "lave_linge_attente_soleil"))
+    assert waiting.attributes["raison"] == "programme non mémorisé"
+
+
+async def test_disarming_makes_smartthinq_forget(hass, freezer):
+    smartthinq_washer(hass)
+    polls, _ = await mock_smartthinq(hass)
+    await armed_in_the_sun(hass, freezer, export_w=150, minutes=2)
+    hass.states.async_set(WASHER_REMOTE, "off")
+    await hass.async_block_till_done()
+    assert len(polls) == 2

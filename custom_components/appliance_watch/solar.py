@@ -1,8 +1,10 @@
 """Home Assistant side of the washer's solar start: inputs in, one command out.
 
 The decision is :mod:`logic.solar_start`'s; this reads the grid meter, the
-price (for the euros shown) and the forecast, and presses "start" — after
-"wake up" if the machine dozed off — through ThinQ's operation select.
+price (for the euros shown) and the forecast, wakes the machine through
+ThinQ's operation select if it dozed off, and starts it — through SmartThinQ's
+remote-start button when there is one (:mod:`.smartthinq`), since ThinQ's own
+"start" runs the default programme after a sleep.
 """
 
 from __future__ import annotations
@@ -35,16 +37,22 @@ from .const import (
     DOMAIN,
     entry_value,
 )
+from .logic.program_memory import ProgramMemory, Refresh
 from .logic.residual import to_watts
 from .logic.solar_curve import Curve
 from .logic.solar_start import Decision, Forecast, SolarStartConfig, SolarStarter
 from .logic.sun_outlook import ForecastNow, Outlook
+from .smartthinq import SmartThinqStarter
 
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_SOLAR_START = f"{DOMAIN}_solar_start"
 SUN = "sun.sun"
 START_OPTION = "start"
+# ThinQ statuses. Armed for remote start, the washer dozes off: woken before
+# it is started.
+ASLEEP = "sleep"
+IDLE = "initial"
 WAKE_OPTION = "wake_up"
 
 # Reads one entity's state as a float, or None when it has nothing to say.
@@ -71,6 +79,9 @@ class WasherSolarStart:
         self.decision = Decision(waiting=False, estimate=None)
         self.remote: str | None = None
         self.operation: str | None = None
+        # Starts the armed programme; None falls back to ThinQ's "start".
+        self.smartthinq: SmartThinqStarter | None = None
+        self._memory = ProgramMemory()
 
     @property
     def configured(self) -> bool:
@@ -136,7 +147,7 @@ class WasherSolarStart:
         return Forecast(now_w=now_w, next_hour_w=next_kwh * 1000)
 
     async def process(self, now: datetime, *, washer_running: bool | None,
-                      asleep: bool, total: timedelta | None,
+                      status: str | None, total: timedelta | None,
                       yield_w: float = 0.0, curve: Curve | None = None,
                       bias: float = 1.0) -> None:
         """Feed the grid reading, decide, and wake or start if it is time.
@@ -152,17 +163,42 @@ class WasherSolarStart:
         pv = self._watts(CONF_SOLAR)
         if pv is not None:
             self._starter.feed_pv(now, pv)
+        armed, asleep = self._armed(), status == ASLEEP
+        await self._sync_program(now, armed, asleep, status == IDLE)
         forecast = self._forecast()
         self.decision = self._starter.decide(
-            now, armed=self._armed(), washer_running=washer_running,
+            now, armed=armed, washer_running=washer_running,
             enabled=self.enabled, asleep=asleep, total=total, price=self._float(CONF_PRICE),
             forecast=forecast, peak_at=self._peak_at(),
             sky=replace(self._sky(forecast), curve=curve or None, bias=bias),
-            expensive_now=self._expensive_now())
+            expensive_now=self._expensive_now(),
+            program_ready=self.smartthinq is None or self._memory.ready)
         if self.decision.wake:
             await self._press(WAKE_OPTION)
-        elif self.decision.start and await self._press(START_OPTION):
+        elif self.decision.start and await self._start():
             self._announce_start()
+
+    async def _sync_program(self, now: datetime, armed: bool | None,
+                            asleep: bool, idle: bool) -> None:
+        """Poll SmartThinQ when the armed programme is to be remembered or forgotten."""
+        if self.smartthinq is None:
+            return
+        refresh = self._memory.observe(now, armed=armed, asleep=asleep, idle=idle,
+                                       wanted=self.enabled)
+        if refresh is None or not await self.smartthinq.refresh():
+            return
+        if refresh is Refresh.FORGET:
+            self._memory.forgotten()
+        elif self.smartthinq.pressable:
+            self._memory.remembered()
+            _LOGGER.info("Lave-linge : programme armé mémorisé par SmartThinQ")
+        else:
+            _LOGGER.warning("Lave-linge : SmartThinQ ne propose pas le départ à distance")
+
+    async def _start(self) -> bool:
+        if self.smartthinq is None:
+            return await self._press(START_OPTION)
+        return await self.smartthinq.start()
 
     async def _press(self, option: str) -> bool:
         try:

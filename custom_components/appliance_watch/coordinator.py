@@ -66,6 +66,7 @@ from .logic.residual import Reading, residual_watts, to_watts
 from .logic.router import RunningAppliance, heating_done
 from .logic.router_state import mean_draw_w
 from .logic.washer import WasherFollower, WasherReading
+from .smartthinq import SmartThinqStarter, find_remote_start
 from .solar import WasherSolarStart
 from .solar_router import SolarRouter
 
@@ -77,8 +78,6 @@ THINQ_REMAINING = "remain"
 THINQ_TOTAL = "total"
 THINQ_REMOTE = "remote_control_enabled"
 THINQ_OPERATION = "operation_mode"
-# Armed for remote start, the washer dozes off: woken before it is started.
-THINQ_ASLEEP = "sleep"
 UNAVAILABLE = ("unknown", "unavailable", "")
 # Store key of the solar-start switch, next to the watchers'.
 SOLAR_ENABLED = "solar_start_enabled"
@@ -184,6 +183,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self._washer_entities = self._find_washer_entities()
         self.solar.remote = self._washer_entities.remote
         self.solar.operation = self._washer_entities.operation
+        if self._washer_entities.operation and (button := find_remote_start(self.hass)):
+            self.solar.smartthinq = SmartThinqStarter(self.hass, button)
         sources = [*self._measured_entities(required=True),
                    *self._measured_entities(required=False),
                    entry_value(self.entry, CONF_TOTAL),
@@ -328,7 +329,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         # The armed washer outranks the pump: it may count on what the pump
         # borrowed above v1, which the router takes back on the next tick.
         await self.solar.process(now, washer_running=self._washer.running,
-                                 asleep=reading.status == THINQ_ASLEEP,
+                                 status=reading.status,
                                  total=reading.total,
                                  yield_w=self.router.pool_yield_w,
                                  curve=self.forecast.curve,

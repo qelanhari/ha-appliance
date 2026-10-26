@@ -260,11 +260,14 @@ class SolarStarter:
                forecast: Forecast | None = None,
                peak_at: datetime | None = None,
                sky: ForecastNow | None = None,
-               expensive_now: bool = False) -> Decision:
+               expensive_now: bool = False,
+               program_ready: bool = True) -> Decision:
         """Whether to start now — True once per attempt.
 
         Every condition has to be *known*: a remote-start flag or a washer
-        status that ThinQ cannot report is no permission to start a machine.
+        status that ThinQ cannot report is no permission to start a machine,
+        and neither is a programme the starter does not hold
+        (``program_ready``, see :mod:`logic.program_memory`).
         """
         if not (enabled and armed is True and washer_running is False):
             self._asked_at = self._woken_at = self._out_of_reach_since = None
@@ -287,6 +290,9 @@ class SolarStarter:
             if expensive_now:
                 return replace(decision, reason="soleil hors d'atteinte : heures creuses attendues")
             decision = replace(decision, reason="soleil hors d'atteinte aujourd'hui")
+        if not program_ready:
+            # Started anyway, it would run the default programme.
+            return replace(decision, reason="programme non mémorisé")
         if asleep:
             if self._recent(self._woken_at, at):
                 return decision

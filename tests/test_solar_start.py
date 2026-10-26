@@ -339,3 +339,18 @@ def test_a_thin_surplus_does_not_wake_it():
     starter = SolarStarter()
     decision = _ask_asleep(starter, _exporting(starter, 31, watts=-150.0))
     assert not decision.wake
+
+
+def test_a_programme_not_remembered_is_not_started():
+    """ThinQ's own start would run the default programme (26 Oct 2026)."""
+    starter = SolarStarter()
+    decision = starter.decide(_exporting(starter, 31), armed=True, washer_running=False,
+                              enabled=True, price=0.1612, program_ready=False)
+    assert not decision.start and decision.reason == "programme non mémorisé"
+
+
+def test_a_programme_not_remembered_is_not_woken_either():
+    starter = SolarStarter()
+    decision = starter.decide(_exporting(starter, 31), armed=True, washer_running=False,
+                              enabled=True, asleep=True, price=0.1612, program_ready=False)
+    assert not decision.wake
