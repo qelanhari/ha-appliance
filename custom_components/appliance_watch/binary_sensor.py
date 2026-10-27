@@ -90,6 +90,10 @@ class WaitingForSunBinarySensor(ApplianceEntity, BinarySensorEntity):
             "economie_estimee_pct": round(estimate.saving * 100) if estimate else None,
             "cout_estime_eur": estimate.cost_eur if estimate else None,
             "cout_reseau_eur": estimate.grid_cost_eur if estimate else None,
+            # Out of reach of the bar: the best hour ahead, and what it saves.
+            "depart_vise": decision.target_at.isoformat() if decision.target_at else None,
+            "economie_visee_pct": (round(decision.target_saving * 100)
+                                   if decision.target_saving is not None else None),
             # The sky as the panels see it, against the forecast.
             "ciel_vs_prevision": (round(sky.ratio, 2)
                                   if sky and sky.ratio is not None else None),

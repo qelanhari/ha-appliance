@@ -333,7 +333,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
                                  total=reading.total,
                                  yield_w=self.router.pool_yield_w,
                                  curve=self.forecast.curve,
-                                 bias=self.router.memory.sky.bias)
+                                 bias=self.router.memory.sky.bias,
+                                 house_w=tuple(self.router.memory.sky.house_w))
         await self.router.process(now, self._running_appliances(now))
 
     def _running_appliances(self, now: datetime) -> list[RunningAppliance]:

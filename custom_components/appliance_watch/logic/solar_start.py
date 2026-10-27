@@ -18,9 +18,11 @@ The cost is estimated, not hoped for:
 And it does not wait for a sun that will not come. When the forecast, scaled
 by what the panels really produce, can no longer reach the lower bar today —
 for a whole observation window, so that a cloud is not taken for the day — it
-stops waiting: it starts now, or at the off-peak hours on a Rouge peak, or
-waits for tomorrow if armed once the day's production is over and tomorrow is
-a good day.
+settles for the best the sun can still give: the hour of the hourly curve whose
+surplus, the house's own draw taken off, saves the most. Today's if one is
+worth it, else tomorrow's — armed in the evening, it waits for tomorrow's best
+hour. Nothing worth waiting for: it starts now, or at the off-peak hours on a
+Rouge peak.
 
 Pure module: no Home Assistant import, no I/O.
 """
@@ -31,6 +33,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from .samples import Trace
+from .solar_curve import Sky, hours_between
 from .sun_outlook import ForecastNow, Outlook, outlook
 
 # The washer's draw on 3 Oct 2026, 86-minute programme: (minutes, watts). It
@@ -73,6 +76,10 @@ class SolarStartConfig:
     # A command the cloud swallowed is asked again — but not every reading.
     # The same goes for waking the machine up.
     retry_after: timedelta = timedelta(minutes=5)
+    # Out of reach of the lower bar, the best hour ahead is waited for only if
+    # it saves at least this much, and this much more than starting now.
+    min_target_saving: float = 0.15
+    target_gain: float = 0.05
 
 
 @dataclass(frozen=True)
@@ -112,6 +119,9 @@ class Decision:
     # The bar this moment is held to, and why.
     required: float | None = None
     reason: str = ""
+    # Out of reach of the bar: the hour waited for instead, and its saving.
+    target_at: datetime | None = None
+    target_saving: float | None = None
 
 
 def profile_for(total: timedelta | None) -> tuple[tuple[float, float], ...]:
@@ -155,6 +165,37 @@ def estimate(profile: tuple[tuple[float, float], ...], surplus_w: float,
                     round(energy / 1000 * price, 3))
 
 
+def _end_of_day(at: datetime) -> datetime:
+    return at.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+
+
+def best_hour(at: datetime, sky: ForecastNow, ratio: float | None,
+              profile: tuple[tuple[float, float], ...],
+              enough: float) -> tuple[datetime, float] | None:
+    """The hour ahead whose expected surplus saves the most, with that saving.
+
+    Today's hours first, scaled by what the panels give now (else the learned
+    bias); tomorrow's, scaled by the bias, only when today offers less than
+    ``enough``. The earliest of equal hours wins.
+    """
+    if not sky.curve:
+        return None
+    midnight = _end_of_day(at)
+    days = ((at.replace(minute=0, second=0, microsecond=0), midnight,
+             ratio if ratio is not None else sky.bias),
+            (midnight, midnight + timedelta(days=1), sky.bias))
+    best: tuple[datetime, float] | None = None
+    for start, end, scale in days:
+        hourly = Sky(sky.curve, scale, sky.house_w)
+        for hour, _ in hours_between(sky.curve, start, end):
+            saving = estimate(profile, max(0.0, hourly.net_w(hour)), None, None).saving
+            if best is None or saving > best[1]:
+                best = (hour, saving)
+        if best is not None and best[1] >= enough:
+            break
+    return best
+
+
 class SolarStarter:
     """Says when to press "start", from the grid meter's recent past."""
 
@@ -165,6 +206,9 @@ class SolarStarter:
         self._asked_at: datetime | None = None
         self._woken_at: datetime | None = None
         self._out_of_reach_since: datetime | None = None
+        # The best hour once settled on: a later forecast never pushes it back.
+        self._target: datetime | None = None
+        self._target_saving: float = 0.0
         self.outlook: Outlook | None = None
 
     def feed_grid(self, at: datetime, watts: float) -> None:
@@ -254,6 +298,26 @@ class SolarStarter:
             self._out_of_reach_since = at
         return at - self._out_of_reach_since >= self.config.window
 
+    def _best_hour(self, at: datetime, total: timedelta | None,
+                   sky: ForecastNow | None, saving_now: float) -> tuple[datetime, float] | None:
+        """The hour to hold on for, or None to start now.
+
+        Once settled on, the hour stands until it comes: a passing cloud, or
+        a forecast revised later, does not make it start now nor wait longer.
+        Only an earlier hour found worth it brings it forward.
+        """
+        cfg = self.config
+        if sky is not None and (self._target is None or at < self._target):
+            ratio = self.outlook.ratio if self.outlook else None
+            found = best_hour(at, sky, ratio, profile_for(total), cfg.min_target_saving)
+            worth = max(cfg.min_target_saving, saving_now + cfg.target_gain)
+            if (found is not None and found[0] > at and found[1] >= worth
+                    and (self._target is None or found[0] <= self._target)):
+                self._target, self._target_saving = found
+        if self._target is None or at >= self._target:
+            return None
+        return self._target, self._target_saving
+
     def decide(self, at: datetime, *, armed: bool | None,
                washer_running: bool | None, enabled: bool,
                asleep: bool = False, total: timedelta | None = None, price: float | None = None,
@@ -271,6 +335,7 @@ class SolarStarter:
         """
         if not (enabled and armed is True and washer_running is False):
             self._asked_at = self._woken_at = self._out_of_reach_since = None
+            self._target = None
             return Decision(waiting=False, estimate=None)
         surplus = self.held_export_w(at)
         if surplus is None:
@@ -284,12 +349,20 @@ class SolarStarter:
         if result.saving < required:
             if not self._sun_out_of_reach(at, total, sky):
                 return decision
-            if self.outlook is not None and self.outlook.production_over \
-                    and self.outlook.tomorrow_good:
+            target = self._best_hour(at, total, sky, result.saving)
+            if target is not None:
+                day = "demain " if target[0].date() > at.date() else ""
+                return replace(decision, target_at=target[0], target_saving=target[1],
+                               reason=f"meilleure heure prévue : {day}{target[0]:%H:%M}")
+            reached = self._target is not None and at >= self._target
+            if not reached and self.outlook is not None \
+                    and self.outlook.production_over and self.outlook.tomorrow_good:
+                # Without an hourly curve, only the day's total says tomorrow is worth it.
                 return replace(decision, reason="soleil de demain attendu")
             if expensive_now:
                 return replace(decision, reason="soleil hors d'atteinte : heures creuses attendues")
-            decision = replace(decision, reason="soleil hors d'atteinte aujourd'hui")
+            decision = replace(decision, reason=(
+                "meilleure heure du jour" if reached else "soleil hors d'atteinte aujourd'hui"))
         if not program_ready:
             # Started anyway, it would run the default programme.
             return replace(decision, reason="programme non mémorisé")
@@ -314,6 +387,7 @@ __all__ = [
     "Forecast",
     "SolarStartConfig",
     "SolarStarter",
+    "best_hour",
     "estimate",
     "profile_for",
 ]

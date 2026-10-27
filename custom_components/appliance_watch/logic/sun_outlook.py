@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from .solar_curve import Curve, hours_between
+from .solar_curve import DEFAULT_HOUSE_W, Curve, hours_between
 
 # Below this forecast, the ratio is noise (dawn, dusk, a shadow on one panel).
 MIN_FORECAST_FOR_RATIO_W: float = 200.0
@@ -60,6 +60,8 @@ class ForecastNow:
     # when the panels cannot be compared with the forecast.
     curve: Curve | None = None
     bias: float = 1.0
+    # What the house draws by hour of day, learned by the router.
+    house_w: tuple[float, ...] = DEFAULT_HOUSE_W
 
 
 @dataclass(frozen=True)

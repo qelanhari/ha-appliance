@@ -21,6 +21,7 @@ from logic.solar_start import (
     Forecast,
     SolarStartConfig,
     SolarStarter,
+    best_hour,
     estimate,
     profile_for,
 )
@@ -354,3 +355,115 @@ def test_a_programme_not_remembered_is_not_woken_either():
     decision = starter.decide(_exporting(starter, 31), armed=True, washer_running=False,
                               enabled=True, asleep=True, price=0.1612, program_ready=False)
     assert not decision.wake
+
+
+# --------------------------------------------------------------------------
+# Out of reach of the bar: the best hour ahead
+# --------------------------------------------------------------------------
+
+# A late-October day of ~9 kWh, peaking at 1.9 kW at 13:00 (Open-Meteo shape).
+DAY = datetime(2026, 10, 27)
+HOUSE = (350.0,) * 24
+
+
+def _october(hour: float) -> float:
+    return max(0.0, 1900.0 - 280.0 * abs(hour - 13) ** 1.6)
+
+
+def _curve(*days: datetime, shift: float = 0.0) -> dict[datetime, float]:
+    return {d + timedelta(hours=h): _october(h + 0.5 - shift)
+            for d in days for h in range(24)}
+
+
+CURVE = _curve(DAY - timedelta(days=1), DAY)
+FLAT = {hour: 0.0 for hour in CURVE}
+
+
+def _simulate(start: datetime, hours: float, *, sky_share: float = 1.0,
+              curve: dict | None = None, late_curve: dict | None = None,
+              expensive_now: bool = False) -> list:
+    """Armed from ``start``, the panels at ``sky_share`` of the forecast:
+    every decision, (at, decision), up to the first wake or start.
+    ``late_curve`` replaces the forecast from 11:00."""
+    starter, out = SolarStarter(), []
+    for second in range(0, int(hours * 3600), 30):
+        at = start + timedelta(seconds=second)
+        pv = sky_share * _october(at.hour + 0.5)
+        starter.feed_grid(at, HOUSE[at.hour] - pv)
+        starter.feed_pv(at, pv)
+        sky = CURVE if curve is None else curve
+        if late_curve is not None and at.hour >= 11:
+            sky = late_curve
+        decision = starter.decide(
+            at, armed=True, washer_running=False, enabled=True,
+            total=timedelta(minutes=86), expensive_now=expensive_now,
+            sky=ForecastNow(now_w=sky.get(at.replace(minute=0, second=0)),
+                            tomorrow_kwh=9.2, curve=sky, house_w=HOUSE))
+        out.append((at, decision))
+        if decision.start or decision.wake:
+            break
+    return out
+
+
+def _started(decisions: list) -> tuple[datetime, object] | None:
+    at, decision = decisions[-1]
+    return (at, decision) if decision.start or decision.wake else None
+
+
+def test_the_best_hour_is_the_peak_less_the_house():
+    hour, saving = best_hour(DAY.replace(hour=9), ForecastNow(curve=CURVE), 0.4,
+                             profile_for(timedelta(minutes=86)), 0.15)
+    assert hour.hour in (12, 13)
+    assert 0.3 < saving < 0.6
+
+
+def test_once_the_day_is_over_the_best_hour_is_tomorrows():
+    hour, _ = best_hour((DAY - timedelta(days=1)).replace(hour=21), ForecastNow(curve=CURVE),
+                        None, profile_for(timedelta(minutes=86)), 0.15)
+    assert hour.date() == DAY.date() and hour.hour in (12, 13)
+
+
+def test_armed_in_the_evening_it_waits_for_tomorrow():
+    """26 Oct: tomorrow at 9 kWh, under the 16 kWh « good day » — before, it
+    started at 22:00 on the grid."""
+    decisions = _simulate((DAY - timedelta(days=1)).replace(hour=21), 18)
+    at, decision = _started(decisions)
+    assert at.date() == DAY.date() and decision.estimate.saving >= 0.5
+    night = [d for t, d in decisions if t.hour == 23]
+    assert night[-1].reason.startswith("meilleure heure prévue : demain ")
+
+
+def test_a_grey_day_starts_at_its_best_hour_not_as_soon_as_it_gives_up():
+    """Panels at a third of the forecast: before, it started mid-morning with
+    nothing from the sun; at its best hour the sun covers ~40 % of the cycle."""
+    at, decision = _started(_simulate(DAY.replace(hour=9), 8, sky_share=0.35))
+    assert decision.reason == "meilleure heure du jour"
+    assert at.hour in (12, 13)
+    assert decision.estimate.saving > 0.3
+
+
+def test_the_hour_waited_for_is_reported():
+    waiting = [d for _, d in _simulate(DAY.replace(hour=9), 8, sky_share=0.35)
+               if d.target_at is not None]
+    assert waiting and waiting[0].reason.startswith("meilleure heure prévue : ")
+    assert waiting[0].target_saving >= 0.15
+
+
+def test_nothing_worth_waiting_for_starts_now():
+    at, decision = _started(_simulate(DAY.replace(hour=9), 2, sky_share=0.0, curve=FLAT))
+    assert decision.reason == "soleil hors d'atteinte aujourd'hui"
+    assert at < DAY.replace(hour=10, minute=30)
+
+
+def test_a_rouge_peak_still_waits_for_the_off_peak_when_nothing_is_worth_it():
+    assert _started(_simulate(DAY.replace(hour=9), 2, sky_share=0.0, curve=FLAT,
+                              expensive_now=True)) is None
+
+
+def test_a_later_forecast_does_not_push_the_hour_back():
+    """From 11:00 the forecast makes 15:00 a little better than noon, still
+    short of the bar: the hour already settled on stands."""
+    late = dict(CURVE) | {DAY.replace(hour=15): 1850.0}
+    at, decision = _started(_simulate(DAY.replace(hour=9), 8, sky_share=0.35,
+                                      late_curve=late))
+    assert at.hour == 12 and decision.reason == "meilleure heure du jour"

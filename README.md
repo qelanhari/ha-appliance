@@ -264,12 +264,23 @@ wet-rain sensor is not used: it stays wet after the shower.
 
 When the best production still to come, less what the house draws, cannot
 reach the lower bar (the held export that covers half the cycle), for a whole
-30-minute window, the washer stops waiting: it starts, or waits for the
-off-peak hours on a Rouge peak, or waits for tomorrow if armed once the day's
-production is over and tomorrow is forecast at 16 kWh or more. Before the
-peak, without the remaining energy and the sunset, it says nothing and waits.
-On 3 Oct (sun never above 35 % of the cycle) it now starts at 14:30 instead of
-never.
+30-minute window, the washer settles for the best the sun can still give: the
+hour of the hourly curve whose surplus — scaled by the panels' ratio today, by
+the learned bias tomorrow, less the house's learned draw at that hour and the
+pump's v1 — saves the most. Today's if it saves at least 15 %, else
+tomorrow's: armed in the evening, it waits for tomorrow's best hour instead of
+starting on the grid at night. Once settled on, the hour stands — a passing
+cloud does not make it start early, a revised forecast does not push it back
+(an earlier hour found worth it brings it forward). Nothing worth 15 %, or no
+better than now by 5 points: it starts now, or waits for the off-peak hours on
+a Rouge peak. The hour waited for shows as `depart_vise` /
+`economie_visee_pct` on `binary_sensor.lave_linge_attente_soleil`.
+
+Without an hourly curve it falls back to the day's totals: start now, or wait
+for tomorrow if armed once the day's production is over and tomorrow is
+forecast at 16 kWh or more. Before the peak, without the remaining energy and
+the sunset, it says nothing and waits. On 3 Oct (sun never above 35 % of the
+cycle) it starts at 14:30 instead of never.
 
 ### Reading the solar curve, not the day's total
 

@@ -39,7 +39,7 @@ from .const import (
 )
 from .logic.program_memory import ProgramMemory, Refresh
 from .logic.residual import to_watts
-from .logic.solar_curve import Curve
+from .logic.solar_curve import DEFAULT_HOUSE_W, Curve
 from .logic.solar_start import Decision, Forecast, SolarStartConfig, SolarStarter
 from .logic.sun_outlook import ForecastNow, Outlook
 from .smartthinq import SmartThinqStarter
@@ -149,11 +149,13 @@ class WasherSolarStart:
     async def process(self, now: datetime, *, washer_running: bool | None,
                       status: str | None, total: timedelta | None,
                       yield_w: float = 0.0, curve: Curve | None = None,
-                      bias: float = 1.0) -> None:
+                      bias: float = 1.0,
+                      house_w: tuple[float, ...] = DEFAULT_HOUSE_W) -> None:
         """Feed the grid reading, decide, and wake or start if it is time.
 
         ``yield_w`` is what the pool pump would give back by dropping to v1:
-        surplus the washer outranks it for.
+        surplus the washer outranks it for. ``house_w`` is the house's learned
+        draw by hour, taken off the curve when the best hour is looked for.
         """
         if not self.configured:
             return
@@ -170,7 +172,8 @@ class WasherSolarStart:
             now, armed=armed, washer_running=washer_running,
             enabled=self.enabled, asleep=asleep, total=total, price=self._float(CONF_PRICE),
             forecast=forecast, peak_at=self._peak_at(),
-            sky=replace(self._sky(forecast), curve=curve or None, bias=bias),
+            sky=replace(self._sky(forecast), curve=curve or None, bias=bias,
+                        house_w=house_w),
             expensive_now=self._expensive_now(),
             program_ready=self.smartthinq is None or self._memory.ready)
         if self.decision.wake:
