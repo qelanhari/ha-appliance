@@ -4,17 +4,21 @@ LG's official integration starts a washer woken from sleep on its default
 programme; SmartThinQ (HACS ``smartthinq_sensors``) sends the armed one with
 the start. Everything else — status, wake-up, power — stays on the official
 integration. SmartThinQ's own polling is meant to be off: it is polled here,
-only when :mod:`logic.program_memory` asks, and right before a start.
+only when :mod:`logic.program_memory` asks, right before a start, and every
+eight hours so that its LG session is not left idle for days: a failure then
+shows in its log long before the start that needed it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +26,8 @@ PLATFORM = "smartthinq_sensors"
 REMOTE_START_SUFFIX = "-remote_start-button"
 # How long a fresh poll may take to make the button pressable.
 BUTTON_WAIT_S = 20
+# Three polls a day: far above the 300 s under which LG bans the account.
+KEEP_ALIVE = timedelta(hours=8)
 
 
 def find_remote_start(hass: HomeAssistant) -> str | None:
@@ -41,6 +47,7 @@ class SmartThinqStarter:
     def __init__(self, hass: HomeAssistant, button: str) -> None:
         self.hass = hass
         self.button = button
+        self._polled_at: datetime | None = None
 
     @property
     def pressable(self) -> bool:
@@ -49,8 +56,18 @@ class SmartThinqStarter:
         # "unknown" is a button never pressed, not one that cannot be.
         return state is not None and state.state != "unavailable"
 
-    async def refresh(self) -> bool:
+    async def keep_alive(self, now: datetime) -> None:
+        """Poll once every KEEP_ALIVE; the first call only starts the clock,
+        SmartThinQ having just logged in at its own setup."""
+        if self._polled_at is None:
+            self._polled_at = now
+        elif now - self._polled_at >= KEEP_ALIVE:
+            _LOGGER.debug("SmartThinQ : interrogation d'entretien")
+            await self.refresh(now)
+
+    async def refresh(self, now: datetime | None = None) -> bool:
         """One poll of the washer through SmartThinQ."""
+        self._polled_at = now or dt_util.utcnow()
         try:
             await self.hass.services.async_call(
                 "homeassistant", "update_entity", {"entity_id": self.button},

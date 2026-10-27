@@ -167,6 +167,8 @@ class WasherSolarStart:
         pv = self._watts(CONF_SOLAR)
         if pv is not None:
             self._starter.feed_pv(now, pv)
+        if self.smartthinq is not None:
+            await self.smartthinq.keep_alive(now)
         armed, asleep = self._armed(), status == ASLEEP
         await self._sync_program(now, armed, asleep, status == IDLE)
         forecast = self._forecast()

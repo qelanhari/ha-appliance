@@ -462,3 +462,16 @@ async def test_disarming_makes_smartthinq_forget(hass, freezer):
     hass.states.async_set(WASHER_REMOTE, "off")
     await hass.async_block_till_done()
     assert len(polls) == 2
+
+
+async def test_smartthinq_is_polled_every_eight_hours_to_keep_its_session(hass, freezer):
+    """Its own polling off, nothing else calls LG between two washes."""
+    smartthinq_washer(hass)
+    polls, _ = await mock_smartthinq(hass)
+    await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    before = len(polls)
+    for hours, expected in ((4, 0), (4, 1), (4, 1), (4, 2)):
+        freezer.tick(timedelta(hours=hours))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+        assert len(polls) - before == expected
