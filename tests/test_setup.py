@@ -6,12 +6,15 @@ live states — including the case that matters most, a measured sensor going
 unavailable.
 """
 
+import logging
+
 import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from datetime import timedelta  # noqa: E402
 
+from homeassistant.config_entries import ConfigEntryState  # noqa: E402
 from homeassistant.helpers import device_registry as dr  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
 from homeassistant.helpers import entity_registry as er  # noqa: E402
@@ -73,8 +76,9 @@ def thinq_washer(hass) -> None:
             suggested_object_id=entity.split(".")[1])
 
 
-def smartthinq_washer(hass) -> None:
+def smartthinq_washer(hass, state: ConfigEntryState = ConfigEntryState.LOADED) -> None:
     """SmartThinQ's remote-start button, registered as that integration does."""
+    MockConfigEntry(domain="smartthinq_sensors", state=state).add_to_hass(hass)
     er.async_get(hass).async_get_or_create(
         "button", "smartthinq_sensors", "WASHER:abc-remote_start-button",
         suggested_object_id=SMARTTHINQ_START.split(".")[1])
@@ -475,3 +479,56 @@ async def test_smartthinq_is_polled_every_eight_hours_to_keep_its_session(hass, 
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
         assert len(polls) - before == expected
+
+
+SMARTTHINQ_LOG = logging.getLogger("custom_components.smartthinq_sensors.wideq.device")
+
+
+async def _tick(hass, freezer) -> None:
+    freezer.tick(timedelta(seconds=30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
+async def test_smartthinq_is_fine_while_its_entry_is_loaded(hass, freezer):
+    smartthinq_washer(hass)
+    await mock_smartthinq(hass)
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    assert state_of(hass, entry, "lave_linge_smartthinq_probleme") == "off"
+
+
+async def test_a_refused_login_in_smartthinqs_log_is_a_problem_until_it_reconnects(
+        hass, freezer):
+    smartthinq_washer(hass)
+    await mock_smartthinq(hass)
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    SMARTTHINQ_LOG.warning("Connection to ThinQ failed. Invalid Token - Device: Lave-linge")
+    await _tick(hass, freezer)
+    problem = hass.states.get(entity_id(hass, entry, "lave_linge_smartthinq_probleme"))
+    assert problem.state == "on"
+    assert problem.attributes["raison"] == "Connection to ThinQ failed. Invalid Token"
+    SMARTTHINQ_LOG.warning("ThinQ client successfully reconnected")
+    await _tick(hass, freezer)
+    assert state_of(hass, entry, "lave_linge_smartthinq_probleme") == "off"
+
+
+async def test_a_network_timeout_is_not_a_login_problem(hass, freezer):
+    smartthinq_washer(hass)
+    await mock_smartthinq(hass)
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    SMARTTHINQ_LOG.warning("Connection to ThinQ failed. Timeout error - Device: Lave-linge")
+    await _tick(hass, freezer)
+    assert state_of(hass, entry, "lave_linge_smartthinq_probleme") == "off"
+
+
+async def test_smartthinq_in_error_is_a_problem(hass, freezer):
+    smartthinq_washer(hass, ConfigEntryState.SETUP_ERROR)
+    await mock_smartthinq(hass)
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    problem = hass.states.get(entity_id(hass, entry, "lave_linge_smartthinq_probleme"))
+    assert problem.state == "on" and problem.attributes["raison"].startswith("intégration")
+
+
+async def test_without_smartthinq_there_is_nothing_to_watch(hass, freezer):
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    assert state_of(hass, entry, "lave_linge_smartthinq_probleme") == "unavailable"

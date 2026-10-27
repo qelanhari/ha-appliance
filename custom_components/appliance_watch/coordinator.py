@@ -66,7 +66,7 @@ from .logic.residual import Reading, residual_watts, to_watts
 from .logic.router import RunningAppliance, heating_done
 from .logic.router_state import mean_draw_w
 from .logic.washer import WasherFollower, WasherReading
-from .smartthinq import SmartThinqStarter, find_remote_start
+from .smartthinq import SmartThinqHealth, SmartThinqStarter, find_remote_start
 from .solar import WasherSolarStart
 from .solar_router import SolarRouter
 
@@ -154,6 +154,8 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self.entry = entry
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._unsubscribe: list[Any] = []
+        # Set up with the SmartThinQ starter: whether LG still takes its login.
+        self.smartthinq_health: SmartThinqHealth | None = None
 
         self._dishwasher = PlateauDetector(self._plateau_config())
         self._dryer = DryerDetector(self._dryer_config())
@@ -185,6 +187,9 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self.solar.operation = self._washer_entities.operation
         if self._washer_entities.operation and (button := find_remote_start(self.hass)):
             self.solar.smartthinq = SmartThinqStarter(self.hass, button)
+            self.smartthinq_health = SmartThinqHealth(self.hass)
+            self.smartthinq_health.attach()
+            self._unsubscribe.append(self.smartthinq_health.detach)
         sources = [*self._measured_entities(required=True),
                    *self._measured_entities(required=False),
                    entry_value(self.entry, CONF_TOTAL),

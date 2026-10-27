@@ -41,6 +41,7 @@ Three devices, *Lave-vaisselle*, *Lave-linge* and *Sèche-linge*, each with:
 | `switch.lave_linge_depart_solaire` | let the sun start the washer once it is armed — on by default |
 | `binary_sensor.lave_linge_attente_soleil` | armed and waiting; attributes give the surplus held, the saving a start now would make, the bar it is held to and why |
 | `sensor.lave_linge_depart_prevu` | when the armed washer should start, read off the solar forecast: the first hour that meets the bar, else the best hour; attributes `heure` (« 13:00 », « demain 13:00 ») and `economie_prevue_pct`. Theoretical — the start itself follows the export actually held |
+| `binary_sensor.lave_linge_smartthinq_probleme` | problem: SmartThinQ no longer reaches LG — a refused login in its log (cleared by its « reconnected ») or its entry not loaded. Its remote-start button cannot tell: it is unavailable whenever the washer is off. SmartThinQ is also polled every 8 h so that its session is never left idle for days |
 
 Entity *ids* follow the Home Assistant UI language — an English instance gets
 `binary_sensor.lave_linge_running` for the row above. The unique ids, and the

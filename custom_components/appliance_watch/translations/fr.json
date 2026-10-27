@@ -100,6 +100,9 @@
       },
       "attente_soleil": {
         "name": "En attente du soleil"
+      },
+      "smartthinq_probleme": {
+        "name": "Connexion SmartThinQ"
       }
     },
     "button": {

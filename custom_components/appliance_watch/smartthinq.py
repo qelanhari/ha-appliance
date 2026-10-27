@@ -15,6 +15,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -97,4 +98,69 @@ class SmartThinqStarter:
         return True
 
 
-__all__ = ["SmartThinqStarter", "find_remote_start"]
+# What SmartThinQ logs when LG no longer takes its login: its polls fail, but
+# its entities are no different from a washer simply switched off.
+AUTH_FAILURES = (
+    "Invalid Token", "Invalid Credential", "ThinQ API error", "error 9012",
+    "Client refresh error", "Invalid ThinQ credential", "authentication failed",
+)
+RECONNECTED = "successfully reconnected"
+
+
+class SmartThinqHealth(logging.Handler):
+    """Whether SmartThinQ can still reach LG, read off its log and its entry.
+
+    A login refused at a poll is only a warning in SmartThinQ's log; repeated,
+    it reloads its entry, which then stays in error. Either is a remote start
+    that will fail. Cleared by its own « reconnected », or its entry loaded
+    again.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        super().__init__(logging.WARNING)
+        self.hass = hass
+        self.log_problem: str | None = None
+        self.since: datetime | None = None
+        self._entry_was_loaded = True
+
+    def attach(self) -> None:
+        logging.getLogger(LOGGER_NAME).addHandler(self)
+
+    def detach(self) -> None:
+        logging.getLogger(LOGGER_NAME).removeHandler(self)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage()
+        if RECONNECTED in message:
+            self.log_problem = None
+        elif any(failure in message for failure in AUTH_FAILURES):
+            if self.log_problem is None:
+                self.since = dt_util.utcnow()
+            self.log_problem = message.split(" - Device:")[0]
+
+    def _entry_problem(self) -> str | None:
+        entries = self.hass.config_entries.async_entries(PLATFORM)
+        if not entries:
+            return "intégration absente"
+        state = entries[0].state
+        loaded = state is ConfigEntryState.LOADED
+        if loaded and not self._entry_was_loaded:
+            # Set up again: it has logged in.
+            self.log_problem = None
+        self._entry_was_loaded = loaded
+        return None if loaded else f"intégration : {state.value}"
+
+    @property
+    def problem(self) -> str | None:
+        """Why a remote start would fail now, or None."""
+        reason = self._entry_problem() or self.log_problem
+        if reason is None:
+            self.since = None
+        elif self.since is None:
+            self.since = dt_util.utcnow()
+        return reason
+
+
+LOGGER_NAME = f"custom_components.{PLATFORM}"
+
+__all__ = ["SmartThinqHealth", "SmartThinqStarter", "find_remote_start"]

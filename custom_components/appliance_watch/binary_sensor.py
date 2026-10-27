@@ -28,6 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
     entities: list[BinarySensorEntity] = [RunningBinarySensor(coordinator, watcher)
                                           for watcher in WATCHERS]
     entities.append(WaitingForSunBinarySensor(coordinator))
+    entities.append(SmartThinqProblemBinarySensor(coordinator))
     async_add_entities(entities)
 
 
@@ -100,3 +101,33 @@ class WaitingForSunBinarySensor(ApplianceEntity, BinarySensorEntity):
             "meilleure_production_restante_w": (round(sky.best_pv_w)
                                                 if sky and sky.best_pv_w is not None else None),
         }
+
+
+class SmartThinqProblemBinarySensor(ApplianceEntity, BinarySensorEntity):
+    """SmartThinQ can no longer reach LG: the solar start would fail.
+
+    Its button cannot tell — it is unavailable whenever the washer is off —
+    so this reads SmartThinQ's log and entry instead.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:account-key"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, WASHER, "smartthinq_probleme")
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.smartthinq_health is not None
+
+    @property
+    def is_on(self) -> bool:
+        health = self.coordinator.smartthinq_health
+        return health is not None and health.problem is not None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        health = self.coordinator.smartthinq_health
+        reason = health.problem if health else None
+        return {"raison": reason,
+                "depuis": health.since.isoformat() if reason and health.since else None}
