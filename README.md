@@ -40,6 +40,7 @@ Three devices, *Lave-vaisselle*, *Lave-linge* and *Sèche-linge*, each with:
 | `button.seche_linge_oublier_empreintes` | throw away what was learned |
 | `switch.lave_linge_depart_solaire` | let the sun start the washer once it is armed — on by default |
 | `binary_sensor.lave_linge_attente_soleil` | armed and waiting; attributes give the surplus held, the saving a start now would make, the bar it is held to and why |
+| `sensor.lave_linge_depart_prevu` | when the armed washer should start, read off the solar forecast: the first hour that meets the bar, else the best hour; attributes `heure` (« 13:00 », « demain 13:00 ») and `economie_prevue_pct`. Theoretical — the start itself follows the export actually held |
 
 Entity *ids* follow the Home Assistant UI language — an English instance gets
 `binary_sensor.lave_linge_running` for the row above. The unique ids, and the

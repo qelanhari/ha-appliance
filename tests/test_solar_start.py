@@ -467,3 +467,28 @@ def test_a_later_forecast_does_not_push_the_hour_back():
     at, decision = _started(_simulate(DAY.replace(hour=9), 8, sky_share=0.35,
                                       late_curve=late))
     assert at.hour == 12 and decision.reason == "meilleure heure du jour"
+
+
+def test_the_expected_start_is_the_first_hour_that_meets_the_bar():
+    """A clear day armed at 8:00: expected as soon as the forecast reaches half."""
+    waiting = [d for t, d in _simulate(DAY.replace(hour=8), 1) if d.expected_at]
+    assert waiting
+    assert all(d.expected_at.date() == DAY.date() and 9 <= d.expected_at.hour <= 12
+               for d in waiting)
+    assert all(d.expected_saving >= 0.5 for d in waiting)
+
+
+def test_the_expected_start_is_tomorrow_when_armed_in_the_evening():
+    decisions = _simulate((DAY - timedelta(days=1)).replace(hour=20), 3)
+    expected = [d.expected_at for _, d in decisions if d.expected_at]
+    assert expected and all(at.date() == DAY.date() for at in expected)
+
+
+def test_the_expected_start_is_never_in_the_past():
+    for at, decision in _simulate(DAY.replace(hour=9), 8, sky_share=0.35):
+        assert decision.expected_at is None or decision.expected_at >= at
+
+
+def test_nothing_is_expected_from_a_sunless_forecast():
+    assert not any(d.expected_at for _, d in
+                   _simulate(DAY.replace(hour=9), 1, sky_share=0.0, curve=FLAT))

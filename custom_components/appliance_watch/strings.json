@@ -210,6 +210,9 @@
       },
       "biais_prevision": {
         "name": "Biais de la prévision solaire"
+      },
+      "depart_prevu": {
+        "name": "Départ prévu"
       }
     },
     "switch": {

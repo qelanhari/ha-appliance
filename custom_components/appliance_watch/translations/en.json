@@ -210,6 +210,9 @@
       },
       "biais_prevision": {
         "name": "Solar forecast bias"
+      },
+      "depart_prevu": {
+        "name": "Expected start"
       }
     },
     "switch": {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -21,6 +22,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DISHWASHER, DOMAIN, DRYER, WASHER, WATCHERS
 from .coordinator import ApplianceCoordinator, WatcherState
@@ -144,6 +146,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry,
         for watcher in description.watchers
     ]
     entities.append(ResidualSensor(coordinator))
+    entities.append(ExpectedStartSensor(coordinator))
     entities += router_sensors(coordinator)
     async_add_entities(entities)
 
@@ -200,3 +203,40 @@ class ResidualSensor(ApplianceEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         return {"base_ambiante_w": self.coordinator.baseline_w}
+
+
+class ExpectedStartSensor(ApplianceEntity, SensorEntity):
+    """When the armed washer should start, as the solar forecast reads.
+
+    Unknown unless it is waiting for the sun. Theoretical: the start itself
+    follows the export actually held, not this hour.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:washing-machine-alert"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, WASHER, "depart_prevu")
+
+    @property
+    def native_value(self) -> datetime | None:
+        decision = self.coordinator.solar.decision
+        return decision.expected_at if decision.waiting else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        decision = self.coordinator.solar.decision
+        at = self.native_value
+        saving = decision.expected_saving if at is not None else None
+        return {
+            # For a badge: the hour itself, where a timestamp shows "in 4 hours".
+            "heure": expected_hour_label(at, dt_util.now()) if at is not None else None,
+            "economie_prevue_pct": round(saving * 100) if saving is not None else None,
+        }
+
+
+def expected_hour_label(at: datetime, now: datetime) -> str:
+    """« 13:00 », or « demain 13:00 », in local time."""
+    local = dt_util.as_local(at)
+    day = "demain " if local.date() > dt_util.as_local(now).date() else ""
+    return f"{day}{local:%H:%M}"

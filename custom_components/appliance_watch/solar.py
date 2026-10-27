@@ -159,6 +159,8 @@ class WasherSolarStart:
         """
         if not self.configured:
             return
+        # Local time: "today" and "tomorrow" are the house's days, as the curve's.
+        now = dt_util.as_local(now)
         grid = self._watts(CONF_GRID)
         if grid is not None:
             self._starter.feed_grid(now, grid - yield_w)
