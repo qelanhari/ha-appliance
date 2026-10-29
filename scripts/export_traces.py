@@ -72,6 +72,11 @@ WINDOWS: list[tuple[str, str, str, str, str]] = [
      "cycle lave-vaisselle de nuit (heures creuses)"),
     ("dishwasher_mon_1700", "residual", "2026-09-14T16:40", "2026-09-14T17:35",
      "cycle lave-vaisselle, début seulement (cuisson enchaînée après)"),
+    # Late last heatings: the latest ones seen past the nominal 63 min.
+    ("dishwasher_sat_0228", "residual", "2026-10-17T02:00", "2026-10-17T03:55",
+     "dernière chauffe vue à début + 63,9 min"),
+    ("dishwasher_wed_1406", "residual", "2026-10-21T13:40", "2026-10-21T15:35",
+     "dernière chauffe jusqu'à début + 64,5 min"),
     # --- the negatives that must never fire -------------------------------
     ("oven_mon_1804", "residual", "2026-09-14T17:50", "2026-09-14T18:40",
      "four: paliers 2540-2658 W, 300 W au-dessus du lave-vaisselle"),

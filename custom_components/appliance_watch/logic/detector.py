@@ -130,7 +130,10 @@ class PlateauConfig:
     # cycle, a late heating extends it, and `quiet_after_end` is only the pause
     # observed before declaring it over.
     nominal: timedelta = timedelta(minutes=63)
-    quiet_after_end: timedelta = timedelta(minutes=8)
+    # Over 21 cycles the latest heating first seen past `nominal` was at
+    # +63.9 min (17 Oct); later sightings slide the end along. Each minute
+    # here is a minute the phone shows 0:00 before "terminé".
+    quiet_after_end: timedelta = timedelta(minutes=3)
     # Two heatings are 13 to 16 minutes apart, while a single one dips for a
     # minute at a time as the pump runs. Anything closer than this is the same
     # heating breathing, not a new one.

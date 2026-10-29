@@ -77,6 +77,8 @@ def only(transitions: list, kind: str):
 @pytest.mark.parametrize("name, started, duration", [
     ("dishwasher_thu_1342", "13:42", (55, 75)),
     ("dishwasher_wed_0142", "01:42", (55, 75)),
+    ("dishwasher_sat_0228", "02:28", (55, 75)),
+    ("dishwasher_wed_1406", "14:06", (55, 75)),
 ])
 def test_dishwasher_cycles_are_detected_with_their_real_start(name, started, duration):
     events = replay(PlateauDetector(), name, tick_after=30)
@@ -98,6 +100,13 @@ def test_start_is_backdated_past_a_choppy_first_heating():
     start = only(replay(PlateauDetector(), "dishwasher_thu_1342"), "started")
     assert start.at.strftime("%H:%M") > "14:00"        # proven late
     assert start.started_at.strftime("%H:%M") <= "13:42"  # dated right
+
+
+def test_a_heating_past_the_nominal_end_extends_the_cycle():
+    """21 Oct: the last heating ran to +64.5 min, past the nominal 63."""
+    finished = only(replay(PlateauDetector(), "dishwasher_wed_1406", tick_after=30),
+                    "finished")
+    assert finished.duration_minutes == pytest.approx(64.5, abs=0.1)
 
 
 def test_dishwasher_detected_even_when_the_window_cuts_the_cycle_short():
