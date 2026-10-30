@@ -187,7 +187,7 @@ class ApplianceCoordinator(DataUpdateCoordinator[dict[str, WatcherState]]):
         self.solar.operation = self._washer_entities.operation
         if self._washer_entities.operation and (button := find_remote_start(self.hass)):
             self.solar.smartthinq = SmartThinqStarter(self.hass, button)
-            self.smartthinq_health = SmartThinqHealth(self.hass)
+            self.smartthinq_health = SmartThinqHealth(self.hass, button)
             self.smartthinq_health.attach()
             self._unsubscribe.append(self.smartthinq_health.detach)
         sources = [*self._measured_entities(required=True),

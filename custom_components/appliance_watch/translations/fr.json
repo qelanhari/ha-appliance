@@ -114,6 +114,9 @@
       },
       "lancer_ecumage": {
         "name": "Lancer un écumage"
+      },
+      "lancer_lave_linge": {
+        "name": "Lancer le lave-linge maintenant"
       }
     },
     "sensor": {

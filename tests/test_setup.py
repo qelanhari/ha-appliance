@@ -529,6 +529,18 @@ async def test_smartthinq_in_error_is_a_problem(hass, freezer):
     assert problem.state == "on" and problem.attributes["raison"].startswith("intégration")
 
 
+async def test_a_button_smartthinq_no_longer_provides_is_a_problem(hass, freezer):
+    """30 Oct 2026: LG refused the login at HA's start, logged before we
+    listened; the entry said loaded, the button was only restored."""
+    smartthinq_washer(hass)
+    await mock_smartthinq(hass)
+    entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
+    hass.states.async_set(SMARTTHINQ_START, "unavailable", {"restored": True})
+    await _tick(hass, freezer)
+    problem = hass.states.get(entity_id(hass, entry, "lave_linge_smartthinq_probleme"))
+    assert problem.state == "on" and problem.attributes["raison"].startswith("bouton")
+
+
 async def test_without_smartthinq_there_is_nothing_to_watch(hass, freezer):
     entry, _ = await armed_in_the_sun(hass, freezer, export_w=0, minutes=1, armed="off")
     assert state_of(hass, entry, "lave_linge_smartthinq_probleme") == "unavailable"

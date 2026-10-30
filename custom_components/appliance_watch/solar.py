@@ -185,6 +185,10 @@ class WasherSolarStart:
         elif self.decision.start and await self._start():
             self._announce_start()
 
+    def force_start(self) -> None:
+        """Start the armed washer at the next tick, without waiting for the sun."""
+        self._starter.force()
+
     async def _sync_program(self, now: datetime, armed: bool | None,
                             asleep: bool, idle: bool) -> None:
         """Poll SmartThinQ when the armed programme is to be remembered or forgotten."""

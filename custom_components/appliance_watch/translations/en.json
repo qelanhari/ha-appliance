@@ -114,6 +114,9 @@
       },
       "lancer_ecumage": {
         "name": "Launch a skim"
+      },
+      "lancer_lave_linge": {
+        "name": "Start the washer now"
       }
     },
     "sensor": {

@@ -114,11 +114,16 @@ class SmartThinqHealth(logging.Handler):
     it reloads its entry, which then stays in error. Either is a remote start
     that will fail. Cleared by its own « reconnected », or its entry loaded
     again.
+
+    A login refused at Home Assistant's start is logged before this listens,
+    and the entry still says loaded (30 Oct 2026): what shows is the button,
+    only restored from the registry since SmartThinQ no longer provides it.
     """
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    def __init__(self, hass: HomeAssistant, button: str) -> None:
         super().__init__(logging.WARNING)
         self.hass = hass
+        self.button = button
         self.log_problem: str | None = None
         self.since: datetime | None = None
         self._entry_was_loaded = True
@@ -150,10 +155,16 @@ class SmartThinqHealth(logging.Handler):
         self._entry_was_loaded = loaded
         return None if loaded else f"intégration : {state.value}"
 
+    def _button_problem(self) -> str | None:
+        state = self.hass.states.get(self.button)
+        if state is None or state.attributes.get("restored"):
+            return "bouton Remote Start absent : appareil non chargé par SmartThinQ"
+        return None
+
     @property
     def problem(self) -> str | None:
         """Why a remote start would fail now, or None."""
-        reason = self._entry_problem() or self.log_problem
+        reason = self._entry_problem() or self.log_problem or self._button_problem()
         if reason is None:
             self.since = None
         elif self.since is None:

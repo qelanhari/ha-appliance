@@ -277,6 +277,20 @@ class LaunchSkimButton(RouterEntity, ButtonEntity):
         await self.coordinator.async_request_refresh()
 
 
+class StartWasherButton(RouterEntity, ButtonEntity):
+    """The armed washer started now, as the router would; its programme still
+    has to be held by SmartThinQ."""
+
+    _attr_icon = "mdi:washing-machine"
+
+    def __init__(self, coordinator: ApplianceCoordinator) -> None:
+        super().__init__(coordinator, "lancer_lave_linge")
+
+    async def async_press(self) -> None:
+        self.coordinator.solar.force_start()
+        await self.coordinator.async_request_refresh()
+
+
 def router_numbers(coordinator: ApplianceCoordinator) -> list[NumberEntity]:
     if not coordinator.router.configured:
         return []
@@ -286,7 +300,8 @@ def router_numbers(coordinator: ApplianceCoordinator) -> list[NumberEntity]:
 def router_buttons(coordinator: ApplianceCoordinator) -> list[ButtonEntity]:
     if not coordinator.router.configured:
         return []
-    return [ForceHeatButton(coordinator), LaunchSkimButton(coordinator)]
+    return [ForceHeatButton(coordinator), LaunchSkimButton(coordinator),
+            StartWasherButton(coordinator)]
 
 
 def router_sensors(coordinator: ApplianceCoordinator) -> list[SensorEntity]:

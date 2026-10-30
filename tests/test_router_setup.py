@@ -23,8 +23,10 @@ from test_setup import (
     LAUNDRY,
     POOL,
     TOTAL,
+    WASHER_OPERATION,
     WASHER_REMOTE,
     entity_id,
+    mock_select_option,
     power,
     setup_entry,
     thinq_washer,
@@ -424,3 +426,20 @@ async def test_the_slider_pins_a_speed_and_shows_the_wanted_one_in_auto(hass, no
     await hass.async_block_till_done()
     assert router.memory.pool.mode == "off"
     assert [c.data["value"] for c in set_value if c.data["entity_id"] == SPEED][-1] == 0.0
+
+
+async def test_the_armed_washer_can_be_started_by_hand_without_sun(hass, noon):
+    sunny_noon(hass, export_w=0)
+    thinq_washer(hass)
+    washer(hass, "initial")
+    hass.states.async_set(WASHER_REMOTE, "on")
+    await mocked(hass)
+    start = await mock_select_option(hass)
+    entry = await setup_entry(hass, ROUTER)
+    await run(hass, noon, minutes=2)
+    assert start == []
+    await hass.services.async_call("button", "press", {
+        "entity_id": entity_id(hass, entry, "routeur_lancer_lave_linge")}, blocking=True)
+    await hass.async_block_till_done()
+    assert [call.data for call in start] == [
+        {"entity_id": WASHER_OPERATION, "option": "start"}]

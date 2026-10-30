@@ -41,7 +41,7 @@ Three devices, *Lave-vaisselle*, *Lave-linge* and *Sèche-linge*, each with:
 | `switch.lave_linge_depart_solaire` | let the sun start the washer once it is armed — on by default |
 | `binary_sensor.lave_linge_attente_soleil` | armed and waiting; attributes give the surplus held, the saving a start now would make, the bar it is held to and why |
 | `sensor.lave_linge_depart_prevu` | when the armed washer should start, read off the solar forecast: the first hour that meets the bar, else the best hour; attributes `heure` (« 13:00 », « demain 13:00 ») and `economie_prevue_pct`. Theoretical — the start itself follows the export actually held |
-| `binary_sensor.lave_linge_smartthinq_probleme` | problem: SmartThinQ no longer reaches LG — a refused login in its log (cleared by its « reconnected ») or its entry not loaded. Its remote-start button cannot tell: it is unavailable whenever the washer is off. SmartThinQ is also polled every 8 h so that its session is never left idle for days |
+| `binary_sensor.lave_linge_smartthinq_probleme` | problem: SmartThinQ no longer reaches LG — a refused login in its log (cleared by its « reconnected »), its entry not loaded, or its remote-start button no longer provided (only restored from the registry: a login refused at HA's start, logged before this listens, while the entry still says loaded). Its remote-start button cannot tell: it is unavailable whenever the washer is off. SmartThinQ is also polled every 8 h so that its session is never left idle for days |
 
 Entity *ids* follow the Home Assistant UI language — an English instance gets
 `binary_sensor.lave_linge_running` for the row above. The unique ids, and the
@@ -146,7 +146,12 @@ select. Two bars, both against the same cycle taken entirely from the grid
 - **50 % — failing better**: only when nothing better is to be expected —
   production **unsteady** (panels' 20th-80th percentile spread over half an
   hour above 30 % of their median; steady mornings measure 0.07-0.28, a
-  cloudy afternoon 1.08), or the day's **forecast peak an hour behind**.
+  cloudy afternoon 1.08), the day's **forecast peak an hour behind**, or
+  **no hour left today forecast to cover the heating** (the hourly curve, the
+  house's draw taken off: on 30 Oct a 2 kW peak gave 87 % at best, and it
+  waited two hours for 90 %).
+- A programme SmartThinQ does not hold is said first (« programme non
+  mémorisé »): no sun would start it.
 
 The share is estimated minute by minute:
 
@@ -247,6 +252,9 @@ automatic logic:
   its own once its cycle ends, or it would heat on alone, on the grid.
 - **Lancer un écumage**: a v3 session now if the sun pays for it, cooldown
   and 5-minute dwell waived.
+- **Lancer le lave-linge maintenant**: the armed washer woken and started at
+  the next tick, as the router would, whatever the sun — still only with the
+  programme held by SmartThinQ. Disarming cancels it.
 - **Options**: minimum winter filtration per day (0 to switch off the top-up).
 
 Configured in the second Options step. It **observes only** until the

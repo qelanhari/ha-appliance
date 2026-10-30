@@ -357,6 +357,45 @@ def test_a_programme_not_remembered_is_not_woken_either():
     assert not decision.wake
 
 
+def test_a_programme_not_remembered_is_said_before_the_sun():
+    """30 Oct 2026: « attente du soleil » all afternoon, for a start that
+    could not happen."""
+    starter = SolarStarter()
+    _steady_pv(starter, 31)
+    at = _exporting(starter, 31, watts=-600.0)
+    decision = starter.decide(at, armed=True, washer_running=False, enabled=True,
+                              peak_at=at + timedelta(hours=2), program_ready=False)
+    assert decision.reason == "programme non mémorisé"
+
+
+def test_a_forced_start_does_not_wait_for_the_sun():
+    starter = SolarStarter()
+    starter.force()
+    decision = _ask(starter, T0)
+    assert decision.start and decision.reason == "départ forcé"
+
+
+def test_a_forced_start_wakes_the_washer_first():
+    starter = SolarStarter()
+    starter.force()
+    assert _ask_asleep(starter, T0).wake
+
+
+def test_a_forced_start_still_needs_the_programme():
+    starter = SolarStarter()
+    starter.force()
+    decision = starter.decide(T0, armed=True, washer_running=False, enabled=True,
+                              program_ready=False)
+    assert not decision.start and decision.reason == "programme non mémorisé"
+
+
+def test_disarming_cancels_a_forced_start():
+    starter = SolarStarter()
+    starter.force()
+    starter.decide(T0, armed=False, washer_running=False, enabled=True)
+    assert not _ask(starter, T0).start
+
+
 # --------------------------------------------------------------------------
 # Out of reach of the bar: the best hour ahead
 # --------------------------------------------------------------------------
@@ -381,14 +420,17 @@ FLAT = {hour: 0.0 for hour in CURVE}
 
 def _simulate(start: datetime, hours: float, *, sky_share: float = 1.0,
               curve: dict | None = None, late_curve: dict | None = None,
-              expensive_now: bool = False) -> list:
+              expensive_now: bool = False, peak_at: datetime | None = None,
+              smooth: bool = False) -> list:
     """Armed from ``start``, the panels at ``sky_share`` of the forecast:
     every decision, (at, decision), up to the first wake or start.
-    ``late_curve`` replaces the forecast from 11:00."""
+    ``late_curve`` replaces the forecast from 11:00. ``smooth`` makes the
+    panels follow the day's shape minute by minute, not hour by hour — steady."""
     starter, out = SolarStarter(), []
     for second in range(0, int(hours * 3600), 30):
         at = start + timedelta(seconds=second)
-        pv = sky_share * _october(at.hour + 0.5)
+        hour = at.hour + at.minute / 60 if smooth else at.hour + 0.5
+        pv = sky_share * _october(hour)
         starter.feed_grid(at, HOUSE[at.hour] - pv)
         starter.feed_pv(at, pv)
         sky = CURVE if curve is None else curve
@@ -396,7 +438,7 @@ def _simulate(start: datetime, hours: float, *, sky_share: float = 1.0,
             sky = late_curve
         decision = starter.decide(
             at, armed=True, washer_running=False, enabled=True,
-            total=timedelta(minutes=86), expensive_now=expensive_now,
+            total=timedelta(minutes=86), expensive_now=expensive_now, peak_at=peak_at,
             sky=ForecastNow(now_w=sky.get(at.replace(minute=0, second=0)),
                             tomorrow_kwh=9.2, curve=sky, house_w=HOUSE))
         out.append((at, decision))
@@ -492,3 +534,31 @@ def test_the_expected_start_is_never_in_the_past():
 def test_nothing_is_expected_from_a_sunless_forecast():
     assert not any(d.expected_at for _, d in
                    _simulate(DAY.replace(hour=9), 1, sky_share=0.0, curve=FLAT))
+
+
+# --------------------------------------------------------------------------
+# The heating covered, held out for only when the forecast can give it
+# --------------------------------------------------------------------------
+
+PEAK = DAY.replace(hour=13)
+# The same day under a forecast a third higher, the panels keeping to it.
+BRIGHT = {hour: watts * 1.3 for hour, watts in CURVE.items()}
+
+
+def test_a_peak_too_low_to_cover_the_heating_is_not_waited_for():
+    """30 Oct 2026: a 2 kW peak at 14:00, steady. Armed at 13:02, it held out
+    for 90 % until 15:00, when the best hour could only give 87 %."""
+    at, decision = _started(_simulate(DAY.replace(hour=10), 5, peak_at=PEAK, smooth=True))
+    assert decision.reason == "chauffe couverte hors d'atteinte aujourd'hui"
+    assert at < PEAK
+
+
+def test_a_peak_that_covers_the_heating_is_still_waited_for():
+    """Steady, an hour before a peak forecast to give ~2.1 kW net: 80-85 %
+    now is not enough, the heating covered is still to come."""
+    late_morning = [d for _, d in _simulate(DAY.replace(hour=11, minute=15), 0.7,
+                                            sky_share=1.3, curve=BRIGHT, peak_at=PEAK,
+                                            smooth=True)
+                    if d.estimate is not None]
+    assert late_morning and not any(d.start for d in late_morning)
+    assert all(d.required == 0.9 for d in late_morning)

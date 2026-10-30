@@ -5,7 +5,8 @@ button then hands the *when* to Home Assistant. Two bars:
 
 * the heating covered — 90 % of the cycle from the sun: start;
 * half the cycle from the sun — acceptable only when nothing better is to be
-  expected: production unsteady, or the day's forecast peak an hour behind.
+  expected: production unsteady, the day's forecast peak an hour behind, or
+  no hour left today forecast to cover the heating.
 
 The cost is estimated, not hoped for:
 
@@ -34,7 +35,7 @@ from datetime import datetime, timedelta
 
 from .samples import Trace
 from .solar_curve import Sky, hours_between
-from .sun_outlook import ForecastNow, Outlook, outlook
+from .sun_outlook import ForecastNow, Outlook, outlook, realism
 
 # The washer's draw on 3 Oct 2026, 86-minute programme: (minutes, watts). It
 # heats twice, early — 39 Wh at 1.5 kW, then 158 Wh at 2.1 kW — and tumbles
@@ -235,7 +236,13 @@ class SolarStarter:
         # The best hour once settled on: a later forecast never pushes it back.
         self._target: datetime | None = None
         self._target_saving: float = 0.0
+        # Asked by hand: start at once, whatever the sun, until disarmed.
+        self._forced = False
         self.outlook: Outlook | None = None
+
+    def force(self) -> None:
+        """Start the armed washer at the next decision, without waiting for the sun."""
+        self._forced = True
 
     def feed_grid(self, at: datetime, watts: float) -> None:
         """One grid reading, signed: negative is export."""
@@ -276,6 +283,20 @@ class SolarStarter:
         if peak_at is None or at >= peak_at + cfg.after_peak:
             return cfg.min_saving, "pic de production passé"
         return cfg.good_saving, "production stable avant le pic : chauffe couverte attendue"
+
+    def _heating_out_of_reach(self, at: datetime, total: timedelta | None,
+                              sky: ForecastNow | None) -> bool:
+        """True when no hour left today is forecast to cover the heating.
+
+        Holding out for it then only loses the sun there is: on 30 Oct 2026,
+        armed at 13:02 under a 2 kW peak, it waited until 15:00 for 90 % while
+        the best hour could give 87 %. Without a curve, nothing can be said.
+        """
+        if sky is None or not sky.curve:
+            return False
+        ratio = realism(self._median(self._pv, at), sky.now_w, sky.raining)
+        today = hourly_savings(at, sky, ratio, profile_for(total))[0]
+        return all(saving < self.config.good_saving for _, saving in today)
 
     def held_export_w(self, at: datetime) -> float | None:
         """The export held most of the window, or None until it is observed.
@@ -377,8 +398,14 @@ class SolarStarter:
         if not (enabled and armed is True and washer_running is False):
             self._asked_at = self._woken_at = self._out_of_reach_since = None
             self._target = None
+            self._forced = False
             return Decision(waiting=False, estimate=None)
         surplus = self.held_export_w(at)
+        if self._forced:
+            forced = estimate(profile_for(total), surplus, forecast, price) \
+                if surplus is not None else None
+            return self._go(at, Decision(waiting=True, estimate=forced, reason="départ forcé"),
+                            asleep=asleep, program_ready=program_ready)
         if surplus is None:
             expected = self._expected(at, total, sky, self.config.min_saving)
             return Decision(waiting=True, estimate=None,
@@ -386,10 +413,15 @@ class SolarStarter:
                             expected_saving=expected[1] if expected else None)
         result = estimate(profile_for(total), surplus, forecast, price)
         required, reason = self._required(at, peak_at)
+        if required >= self.config.good_saving and self._heating_out_of_reach(at, total, sky):
+            required, reason = self.config.min_saving, "chauffe couverte hors d'atteinte aujourd'hui"
         if result.saving >= self.config.good_saving:
             required, reason = self.config.good_saving, "chauffe couverte"
         decision = Decision(waiting=True, estimate=result,
                             required=required, reason=reason)
+        if not program_ready:
+            # Said first: no sun can start it, the wait is not for the sun.
+            return replace(decision, reason="programme non mémorisé")
         if result.saving < required:
             if not self._sun_out_of_reach(at, total, sky):
                 expected = self._expected(at, total, sky, required)
@@ -411,6 +443,11 @@ class SolarStarter:
                 return replace(decision, reason="soleil hors d'atteinte : heures creuses attendues")
             decision = replace(decision, reason=(
                 "meilleure heure du jour" if reached else "soleil hors d'atteinte aujourd'hui"))
+        return self._go(at, decision, asleep=asleep, program_ready=program_ready)
+
+    def _go(self, at: datetime, decision: Decision, *, asleep: bool,
+            program_ready: bool) -> Decision:
+        """Wake or start, once per attempt — unless the programme is not held."""
         if not program_ready:
             # Started anyway, it would run the default programme.
             return replace(decision, reason="programme non mémorisé")
