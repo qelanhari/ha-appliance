@@ -261,3 +261,39 @@ def test_the_next_programme_does_not_inherit_the_last_one_s_length():
     follower.update(T0 + timedelta(minutes=60), WasherReading("end"))
     follower.update(T0 + timedelta(minutes=90), WasherReading("detecting"))
     assert follower.expected is None
+
+
+# --------------------------------------------------------------------------
+# 30 Oct: started by hand at 14:43, an armed preview and an hourless end
+# --------------------------------------------------------------------------
+
+
+def _at(clock: str) -> datetime:
+    return datetime.fromisoformat(f"2026-10-30T{clock}+00:00")
+
+
+def _thirtieth() -> WasherFollower:
+    """ThinQ as recorded (UTC): woken at 13:10 with a preview ending 14:36:53,
+    started at 13:43:34, then an end of 14:10:14 — 1 h 25 left, read as 25 min."""
+    follower = WasherFollower()
+    total = timedelta(minutes=86)
+    for clock, status, ends_at, length in (
+            ("12:14:50", "sleep", "13:40:50", total),
+            ("13:10:53", "sleep", "14:36:53", total),
+            ("13:10:55", "initial", None, None),
+            ("13:43:34", "detecting", None, total),
+            ("13:44:13", "running", None, total),
+            ("13:45:14", "running", "14:10:14", total)):
+        follower.update(_at(clock), WasherReading(
+            status, _at(ends_at) if ends_at else None, length))
+    return follower
+
+
+def test_a_start_seen_happening_is_not_moved_back_by_a_stale_plan():
+    assert _thirtieth().cycle.started_at == _at("13:43:34")
+
+
+def test_an_hourless_end_gives_way_to_the_programme_length():
+    """The phone showed « fin 15:10 » while LG's app said 16:10."""
+    follower = _thirtieth()
+    assert follower.cycle.started_at + follower.expected == _at("15:09:34")

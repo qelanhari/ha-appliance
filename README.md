@@ -94,6 +94,11 @@ Nothing is inferred. A ThinQ status of `detecting`, `running`, `rinsing`,
   and dated it 17:21:13; the meter had risen at 17:18:54, for the load sensing.
 - ThinQ publishes the status a few milliseconds before the predicted end and
   the length, so the start is corrected on the update after it.
+- **Unless the start was seen**: `detecting` straight from an idle status. The
+  plan may then date it at most 10 minutes earlier. On 30 Oct the armed
+  preview, read before the start, put it 33 minutes early, then ThinQ ended
+  the wash at 15:10 instead of 16:10 — 1 h 25 left, read as 25 min. Dated
+  right, that end cuts the programme short and its length answers instead.
 - The remaining time and the end follow ThinQ's revisions — a few minutes
   either way over the cycle.
 - The energy is read off the laundry meter, except while the dryer runs too:

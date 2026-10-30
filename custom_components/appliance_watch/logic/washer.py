@@ -37,6 +37,14 @@ STAGES: dict[str, str] = {
 # Re-estimates move the end by minutes (82 to 86 min on 3 Oct); while weighing
 # the load it ended a 189-minute wash 9 minutes in (14 Oct).
 PLAN_SLACK = timedelta(minutes=30)
+# How much earlier than a start Home Assistant saw happen the machine's plan
+# may date it: a cloud a little behind the panel. On 30 Oct a plan put it 33
+# minutes earlier — the armed preview, read before the start — then ThinQ
+# ended the wash an hour early, its hours dropped.
+SEEN_START_SLACK = timedelta(minutes=10)
+# A cycle starts by weighing the load; reached from idle, the start was seen.
+# Any other stage straight from idle is a cycle the cloud reported late.
+FIRST_STAGE = "detecting"
 
 
 @dataclass(frozen=True)
@@ -63,6 +71,8 @@ class WasherFollower:
         self._previous: tuple[datetime, float, bool] | None = None
         # Whether the start has been read off the machine's plan yet.
         self._dated = False
+        # When the start was seen happening: weighing, straight from idle.
+        self._seen_start: datetime | None = None
 
     @property
     def cycle(self) -> Cycle | None:
@@ -101,6 +111,7 @@ class WasherFollower:
 
     def update(self, at: datetime, reading: WasherReading) -> list[Transition]:
         """Take the latest ThinQ state; return the cycle it opened or closed."""
+        idle_before = self._status is not None and self._status not in STAGES
         self._status = reading.status
         if reading.status is None:
             return []
@@ -110,6 +121,8 @@ class WasherFollower:
         if active:
             self._stage = STAGES[reading.status]
         if active and self._cycle is None:
+            self._seen_start = (at if idle_before and reading.status == FIRST_STAGE
+                                else None)
             return [self._start(at, reading)]
         if active and not self._dated:
             self._date(at)
@@ -151,7 +164,12 @@ class WasherFollower:
         cycle = self._cycle
         if cycle is None or self._ends_at is None or self._total is None:
             return
-        cycle.started_at = min(at, self._ends_at - self._total)
+        planned = self._ends_at - self._total
+        if self._seen_start is not None and planned < self._seen_start - SEEN_START_SLACK:
+            # Seen happening: that plan is not this cycle's. Its end is then
+            # weighed against the programme's length by ``expected``.
+            planned = self._seen_start
+        cycle.started_at = min(at, planned)
         self._dated = True
 
     def _finish(self, at: datetime) -> Transition:
