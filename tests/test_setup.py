@@ -241,6 +241,44 @@ async def test_residual_subtracts_every_measured_load(hass):
     assert float(residual.state) == pytest.approx(400.0)  # 2000 - 500 - 1000 - 100
 
 
+async def test_the_residual_is_written_once_a_minute(hass, freezer):
+    """Every write is a row in the recorder: 20 a minute, before 0.13.2."""
+    power(hass, TOTAL, 2000)
+    power(hass, POOL, 500)
+    power(hass, LAUNDRY, 100)
+    hass.states.async_set(CHARGER, "unavailable")
+    entry = await setup_entry(hass)
+    residual = entity_id(hass, entry, "conso_non_mesuree")
+
+    power(hass, TOTAL, 2100)
+    await hass.async_block_till_done()
+    first = float(hass.states.get(residual).state)
+    power(hass, TOTAL, 2200)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(residual).state) == pytest.approx(first)
+
+    freezer.tick(timedelta(seconds=61))
+    power(hass, TOTAL, 2300)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(residual).state) == pytest.approx(1700.0)
+
+
+async def test_a_residual_that_drops_out_is_written_at_once(hass):
+    power(hass, TOTAL, 2000)
+    power(hass, POOL, 500)
+    power(hass, LAUNDRY, 100)
+    hass.states.async_set(CHARGER, "unavailable")
+    entry = await setup_entry(hass)
+    power(hass, TOTAL, 2100)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(POOL, "unavailable")
+    await hass.async_block_till_done()
+
+    residual = hass.states.get(entity_id(hass, entry, "conso_non_mesuree"))
+    assert residual.state in ("unknown", "unavailable")
+
+
 async def test_a_missing_measured_reading_suspends_the_residual(hass):
     """A sensor that drops out must not be read as 0 W.
 

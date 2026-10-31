@@ -26,7 +26,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import DISHWASHER, DOMAIN, DRYER, WASHER, WATCHERS
 from .coordinator import ApplianceCoordinator, WatcherState
-from .entity import ApplianceEntity
+from .entity import QUIET_WRITE_S, ApplianceEntity
 from .logic.washer import STAGES
 from .router_entities import router_sensors
 
@@ -191,9 +191,14 @@ class ResidualSensor(ApplianceEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # The detector reads the residual itself; the entity is for the eye.
+    _min_write_s = QUIET_WRITE_S
 
     def __init__(self, coordinator: ApplianceCoordinator) -> None:
         super().__init__(coordinator, DISHWASHER, "conso_non_mesuree")
+
+    def _milestone(self) -> object:
+        return self.available, self.native_value is None
 
     @property
     def native_value(self) -> float | None:

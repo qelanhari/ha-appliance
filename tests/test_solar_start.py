@@ -531,6 +531,15 @@ def test_the_expected_start_is_never_in_the_past():
         assert decision.expected_at is None or decision.expected_at >= at
 
 
+def test_the_expected_start_holds_for_the_minute():
+    """An hour already begun reads « now », to the minute: rewritten on every
+    30 s decision, it made a recorder row each time."""
+    expected = [d.expected_at for _, d in _simulate(DAY.replace(hour=9), 8, sky_share=0.35)
+                if d.expected_at]
+    assert expected
+    assert all(at.second == 0 and at.microsecond == 0 for at in expected)
+
+
 def test_nothing_is_expected_from_a_sunless_forecast():
     assert not any(d.expected_at for _, d in
                    _simulate(DAY.replace(hour=9), 1, sky_share=0.0, curve=FLAT))

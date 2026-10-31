@@ -212,6 +212,13 @@ def best_hour(at: datetime, sky: ForecastNow, ratio: float | None,
     return best
 
 
+def _next_minute(at: datetime) -> datetime:
+    """``at`` rounded up to the minute: an hour already begun reads « now »
+    without changing on every refresh, which the recorder would keep."""
+    floor = at.replace(second=0, microsecond=0)
+    return floor if floor == at else floor + timedelta(minutes=1)
+
+
 def first_hour(at: datetime, sky: ForecastNow, ratio: float | None,
                profile: tuple[tuple[float, float], ...],
                bar: float) -> tuple[datetime, float] | None:
@@ -378,7 +385,7 @@ class SolarStarter:
                  or best_hour(at, sky, ratio, profile, self.config.min_target_saving))
         if found is None or found[1] <= 0:
             return None
-        return max(found[0], at), found[1]
+        return max(found[0], _next_minute(at)), found[1]
 
     def decide(self, at: datetime, *, armed: bool | None,
                washer_running: bool | None, enabled: bool,

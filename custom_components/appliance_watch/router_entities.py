@@ -24,7 +24,7 @@ from homeassistant.const import EntityCategory, UnitOfPower
 
 from .const import ROUTER
 from .coordinator import ApplianceCoordinator
-from .entity import ApplianceEntity
+from .entity import QUIET_WRITE_S, ApplianceEntity
 from .logic.loads import pool as pool_load
 from .logic.loads import water_heater as water_load
 from .solar_router import SolarRouter
@@ -45,6 +45,8 @@ class RouterEntity(ApplianceEntity):
 class RouterSensorDescription(SensorEntityDescription):
     value: Callable[[SolarRouter], object]
     attributes: Callable[[SolarRouter], dict[str, Any]] | None = None
+    # Its value, or an attribute, moves at every meter reading.
+    noisy: bool = False
 
 
 def _water_attributes(router: SolarRouter) -> dict[str, Any]:
@@ -115,6 +117,7 @@ ROUTER_SENSORS: tuple[RouterSensorDescription, ...] = (
         key="piscine_vitesse_cible",
         value=lambda r: r.allocation.pool.target_speed if r.allocation else None,
         attributes=_pool_attributes,
+        noisy=True,
     ),
     RouterSensorDescription(
         key="reseau_lisse",
@@ -122,6 +125,7 @@ ROUTER_SENSORS: tuple[RouterSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPower.WATT,
         value=lambda r: _allocation(r, "grid_smooth_w"),
+        noisy=True,
     ),
     RouterSensorDescription(
         key="reserve_appareils",
@@ -151,10 +155,19 @@ class RouterSensor(RouterEntity, SensorEntity):
                  description: RouterSensorDescription) -> None:
         super().__init__(coordinator, description.key)
         self.entity_description = description
+        if description.noisy:
+            self._min_write_s = QUIET_WRITE_S
 
     @property
     def native_value(self) -> object:
         return self.entity_description.value(self.router)
+
+    def _milestone(self) -> object:
+        value = self.native_value
+        # A power reading is news only when it appears or goes; a speed always is.
+        if self.device_class == SensorDeviceClass.POWER:
+            return self.available, value is None
+        return self.available, value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
